@@ -1,514 +1,723 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<title>Decide OS v2.1 - Dining + ONDC Layer</title>
-<meta name="theme-color" content="#ff671f" />
-<link rel="manifest" href="manifest.json" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Decide</title>
+<meta name="theme-color" content="#ff671f">
+<link rel="manifest" href="manifest-ondc.json">
 
-<!-- Supabase (CDN) -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Supabase -->
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- jsPDF -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <style>
 :root{
   --brand-orange:#ff671f;
-  --brand-dark:#000;
   --border:rgba(255,255,255,0.15);
   --accent:#00e676;
-  --blue:#1e88e5;
+  --ondc-blue:#1e88e5;
   --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;min-height:100%;background:#000;color:#fff;font-family:var(--font);-webkit-font-smoothing:antialiased}
-#app{min-height:100vh;display:flex;flex-direction:column;padding:20px;padding-bottom:80px}
-.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;gap:12px}
+button{font:inherit}
+
+#app{min-height:100vh;display:flex;flex-direction:column;padding:20px;padding-bottom:calc(80px + var(--safe-bottom))}
+
+/* HEADER */
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:30px;gap:15px}
 .header-badge{
   background:rgba(255,103,31,0.1);
   border:2px solid var(--brand-orange);
-  padding:12px 18px;border-radius:12px;font-size:.85rem;font-weight:800;letter-spacing:1px;
-  color:var(--brand-orange);display:flex;align-items:center;gap:10px;flex:1;
+  padding:12px 24px;border-radius:12px;
+  font-size:.85rem;font-weight:800;letter-spacing:1px;
+  color:var(--brand-orange);
+  display:flex;align-items:center;gap:10px;flex:1;
 }
-.pill{background:rgba(30,136,229,.12);border:1px solid rgba(30,136,229,.35);color:var(--blue);padding:4px 10px;border-radius:999px;font-size:.72rem;font-weight:700}
-.dot{width:10px;height:10px;background:var(--accent);border-radius:50%;box-shadow:0 0 10px var(--accent)}
-.btn-ghost{
-  background:transparent;border:2px solid rgba(255,255,255,0.25);
-  padding:10px 18px;border-radius:999px;color:#fff;font-weight:800;cursor:pointer
+.status-dot{
+  width:10px;height:10px;background:var(--accent);border-radius:50%;
+  box-shadow:0 0 10px var(--accent);
+  animation:pulse 2s infinite;
 }
-.btn-ghost:hover{background:rgba(255,255,255,0.08)}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
-.card{
-  background:rgba(20,20,20,0.55);
-  border:1px solid var(--border);
-  border-radius:22px;
-  padding:22px 16px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
-  cursor:pointer;transition:.2s;
-  min-height:150px;
-}
-.card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,0.25);background:rgba(30,30,30,0.7)}
-.icon{font-size:2.8rem}
-.title{font-weight:900;letter-spacing:.4px;text-align:center}
-.tag{font-size:.72rem;font-weight:800;letter-spacing:1.4px;padding:4px 10px;border-radius:8px}
-.tag-live{color:var(--accent);background:rgba(0,230,118,.12);border:1px solid rgba(0,230,118,.25)}
-.tag-beta{color:#4CAF50;background:rgba(76,175,80,.12);border:1px solid rgba(76,175,80,.25)}
-.tag-neutral{color:#aaa;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)}
-.tag-soon{color:#FFA726;background:rgba(255,167,38,.12);border:1px solid rgba(255,167,38,.25)}
-.bottom{
-  width:100%;background:transparent;border:2px solid rgba(255,255,255,0.18);
-  padding:16px;border-radius:18px;font-weight:900;cursor:pointer;margin-bottom:14px
-}
-.bottom:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.3)}
-.small{opacity:.35;text-align:center;margin-top:auto;font-size:.8rem}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 
-.screen{max-width:650px;margin:0 auto;width:100%}
-.h1{font-size:1.7rem;font-weight:1000;text-align:center;margin:10px 0 18px;text-transform:uppercase;letter-spacing:1px}
-.p{color:#aaa;text-align:center;margin:0 0 18px;line-height:1.5}
-.filters{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
-.fbtn{
-  background:rgba(20,20,20,0.55);border:2px solid var(--border);
-  padding:18px;border-radius:16px;text-align:center;font-weight:1000;cursor:pointer;text-transform:uppercase
+.btn{
+  background:transparent;border:2px solid rgba(255,255,255,0.3);
+  padding:12px 30px;border-radius:50px;font-size:.9rem;
+  font-weight:800;color:#fff;cursor:pointer;transition:.2s;
 }
-.fbtn.active{background:var(--brand-orange);border-color:var(--brand-orange);color:#000}
-.action{width:100%;background:var(--brand-orange);border:none;color:#000;padding:16px;border-radius:16px;font-weight:1000;cursor:pointer}
-.action:hover{filter:brightness(1.05);transform:translateY(-1px)}
-.back{width:100%;background:transparent;border:2px solid var(--border);color:#fff;padding:14px;border-radius:16px;font-weight:1000;cursor:pointer;margin-top:10px}
-.back:hover{background:rgba(255,255,255,0.08)}
+.btn:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.5)}
+.btn:focus-visible,.card:focus-visible,.filter-btn:focus-visible,.payment-option:focus-visible{
+  outline:3px solid rgba(255,103,31,.75);outline-offset:3px;
+}
+
+/* GRID */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:25px}
+.card{
+  background:rgba(20,20,20,0.6);border:1px solid var(--border);
+  border-radius:24px;padding:30px 20px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:15px;cursor:pointer;transition:.2s;min-height:180px;
+}
+.card:hover{background:rgba(40,40,40,0.8);border-color:rgba(255,255,255,0.3);transform:translateY(-4px)}
+.card[aria-disabled="true"]{opacity:.5;cursor:not-allowed;pointer-events:none}
+.icon{font-size:3.5rem}
+.title{font-size:1.1rem;font-weight:900;letter-spacing:.5px;text-align:center;margin:0}
+.tag{
+  font-size:.75rem;font-weight:800;letter-spacing:1.5px;
+  padding:4px 12px;border-radius:6px
+}
+.tag-live{color:var(--accent);background:rgba(0,230,118,0.15)}
+.tag-neutral{color:#888;background:rgba(136,136,136,0.15)}
+.tag-beta{color:#4CAF50;background:rgba(76,175,80,0.15)}
+.tag-links{color:#42A5F5;background:rgba(66,165,245,0.15)}
+
+.bottom{
+  width:100%;background:transparent;border:2px solid rgba(255,255,255,0.2);
+  padding:18px;border-radius:20px;font-size:1rem;font-weight:900;color:#fff;
+  cursor:pointer;transition:.2s;margin-bottom:20px;
+}
+.bottom:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.4)}
+
+/* FILTERS */
+.wrap{max-width:600px;margin:0 auto;width:100%}
+.h1{font-size:1.8rem;font-weight:900;margin:0 0 20px;text-align:center;text-transform:uppercase}
+.p{text-align:center;color:#888;margin:0 0 25px}
+.filter-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:25px}
+.filter-btn{
+  background:rgba(20,20,20,0.6);border:2px solid var(--border);
+  padding:25px;border-radius:18px;text-align:center;font-weight:900;font-size:1rem;
+  cursor:pointer;transition:.2s;text-transform:uppercase;
+}
+.filter-btn:hover{background:rgba(40,40,40,0.8);border-color:rgba(255,255,255,0.3)}
+.filter-btn.active{background:var(--brand-orange);color:#000;border-color:var(--brand-orange)}
+
+.action{
+  background:var(--brand-orange);color:#000;border:none;padding:18px;border-radius:18px;
+  font-weight:900;font-size:1rem;cursor:pointer;width:100%;margin-bottom:12px;
+  transition:.2s;text-transform:uppercase;
+}
+.action:hover{background:#ff7d3f;transform:translateY(-2px)}
+.secondary{
+  background:transparent;color:#fff;border:2px solid var(--border);padding:16px;border-radius:18px;
+  font-weight:900;font-size:.95rem;cursor:pointer;width:100%;transition:.2s;text-transform:uppercase;
+}
+.secondary:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.3)}
+
+/* RESULTS */
+.results{max-width:800px;margin:0 auto;padding:20px 0}
+.result{
+  background:rgba(20,20,20,0.6);border:1px solid var(--border);
+  border-radius:18px;padding:20px;margin-bottom:15px;transition:.2s;
+}
+.result:hover{background:rgba(30,30,30,0.8);border-color:rgba(255,255,255,0.3)}
+.row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.name{font-size:1.2rem;font-weight:900;margin:0 0 5px}
+.seller{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.badge{background:rgba(30,136,229,0.2);color:var(--ondc-blue);padding:4px 10px;border-radius:6px;font-size:.75rem;font-weight:800}
+.rating{color:#FFA726;font-size:.85rem}
+.price{text-align:right}
+.price-main{font-size:1.8rem;font-weight:900;color:var(--brand-orange)}
+.details{
+  display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:15px 0;padding:15px;
+  background:rgba(255,255,255,0.03);border-radius:12px;
+}
+.label{color:#888;font-size:.85rem}
+.value{font-weight:800;font-size:.9rem}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.buy{background:var(--brand-orange);color:#000;border:none;padding:12px;border-radius:12px;font-weight:900;cursor:pointer;transition:.2s}
+.buy:hover{background:#ff7d3f;transform:translateY(-2px)}
+.add{background:transparent;color:#fff;border:1px solid var(--border);padding:12px;border-radius:12px;font-weight:800;cursor:pointer;transition:.2s}
+.add:hover{background:rgba(255,255,255,0.1)}
+
+/* PAYMENT */
+.payment-option{
+  background:rgba(255,255,255,0.03);border:2px solid var(--border);padding:15px;border-radius:12px;
+  display:flex;align-items:center;gap:15px;cursor:pointer;transition:.2s;
+}
+.payment-option:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.3)}
+.payment-option.selected{border-color:var(--brand-orange);background:rgba(255,103,31,0.1)}
 
 .toast{
-  position:fixed;left:50%;bottom:28px;transform:translateX(-50%);
-  background:#111;border:1px solid #333;padding:10px 18px;border-radius:999px;
-  font-weight:800;font-size:.85rem;opacity:0;transition:.25s;z-index:9999
+  position:fixed;bottom:calc(40px + var(--safe-bottom));left:50%;transform:translateX(-50%);
+  background:#111;border:1px solid #333;padding:12px 24px;border-radius:30px;
+  font-size:.85rem;opacity:0;transition:opacity .2s;z-index:1000;
 }
 .toast.show{opacity:1}
 
-@media (max-width:600px){ .grid{gap:12px} .card{min-height:140px} }
+@media (max-width:600px){
+  .grid{gap:15px}
+  .card{padding:25px 15px;min-height:160px}
+  .icon{font-size:3rem}
+  .title{font-size:1rem}
+  .details{grid-template-columns:1fr}
+  .actions{grid-template-columns:1fr}
+}
 </style>
 </head>
+
 <body>
 <div id="app"></div>
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script>
-(() => {
+(function(){
   "use strict";
 
-  /* =========================
-     CONFIG
-  ========================= */
-  const APP_VERSION = "2.1.0";
-  const SUPABASE_URL = "https://adzkzeghlgzpbageszqh.supabase.co";
-  const SUPABASE_ANON_KEY = "PASTE_YOUR_ANON_KEY_HERE"; // <-- put your anon key
-  const TABLE_PRODUCTS = "products";
-  const TABLE_ANALYTICS = "analytics_events";
+  /* -------- helpers (no replaceAll) -------- */
+  function $(id){ return document.getElementById(id); }
+  function esc(s){
+    s = String(s == null ? "" : s);
+    return s
+      .replace(/&/g,"&amp;")
+      .replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;")
+      .replace(/'/g,"&#039;");
+  }
+  function toast(msg){
+    var t = $("toast"); if(!t) return;
+    t.textContent = String(msg || "");
+    t.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function(){ t.classList.remove("show"); }, 2200);
+  }
 
-  /* =========================
-     STATE
-  ========================= */
-  const $ = (id) => document.getElementById(id);
-  const state = {
-    deviceId: null,
-    sessionId: "SID-" + Math.random().toString(36).slice(2,6).toUpperCase(),
+  /* -------- state -------- */
+  function safeId(){
+    try{ if(window.crypto && crypto.randomUUID) return crypto.randomUUID(); }catch(e){}
+    return "dev-" + Math.random().toString(36).slice(2) + "-" + Date.now().toString(36);
+  }
+
+  var DEVICE_ID = localStorage.getItem("decide_device_id");
+  if(!DEVICE_ID){ DEVICE_ID = safeId(); localStorage.setItem("decide_device_id", DEVICE_ID); }
+
+  var STATE = {
     domain: null,
     filters: [],
-    dbSource: "demo",
-    db: { dining: [], smartphones: [], earbuds: [], laptops: [] },
-    supabase: null,
-    analyticsQueue: [],
-    flushTimer: null,
-    selectedRestaurantId: null,
+    cart: [],
+    orders: [],
+    session: "SID-" + Math.random().toString(36).slice(2,6).toUpperCase()
   };
 
-  /* =========================
-     SAFE HELPERS
-  ========================= */
-  function toast(msg){
-    const t = $("toast");
-    if(!t) return;
-    t.textContent = msg;
-    t.classList.add("show");
-    setTimeout(() => t.classList.remove("show"), 2200);
-  }
-  function safeJsonParse(s, fallback){
-    try { return JSON.parse(s); } catch { return fallback; }
-  }
-  function escapeHtml(str){
-    return String(str ?? "")
-      .replaceAll("&","&amp;").replaceAll("<","&lt;")
-      .replaceAll(">","&gt;").replaceAll('"',"&quot;")
-      .replaceAll("'","&#039;");
-  }
-
-  /* =========================
-     DEVICE ID
-  ========================= */
-  function initDeviceId(){
-    let id = localStorage.getItem("decide_device_id");
-    if(!id){
-      id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : ("DID-" + Math.random().toString(36).slice(2));
-      localStorage.setItem("decide_device_id", id);
-    }
-    state.deviceId = id;
-  }
-
-  /* =========================
-     SUPABASE INIT (SAFE)
-  ========================= */
-  function initSupabase(){
-    try{
-      if(window.supabase && window.supabase.createClient && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.includes("PASTE_")){
-        state.supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-      } else {
-        state.supabase = null;
-      }
-    } catch {
-      state.supabase = null;
-    }
-  }
-
-  /* =========================
-     ANALYTICS (SAFE / OPTIONAL)
-  ========================= */
-  function track(eventType, meta={}){
-    state.analyticsQueue.push({
-      device_id: state.deviceId,
-      session_id: state.sessionId,
-      event_type: eventType,
-      module: state.domain,
-      product: meta.product ?? null,
-      created_at: new Date().toISOString()
-    });
-    if(state.analyticsQueue.length >= 10) flushAnalytics();
-  }
-
-  async function flushAnalytics(){
-    if(!state.supabase) { state.analyticsQueue = []; return; }
-    if(!state.analyticsQueue.length) return;
-    const payload = state.analyticsQueue.slice();
-    state.analyticsQueue = [];
-    try{
-      await state.supabase.from(TABLE_ANALYTICS).insert(payload);
-    } catch {
-      // ignore: RLS/table missing/etc
-    }
-  }
-
-  /* =========================
-     DATA LAYER
-  ========================= */
-  const DEMO_DINING = [
-    {
-      id: "rajkot-thali-001",
-      name: "Unlimited Gujarati Thali (Rajkot)",
-      city: "Rajkot",
-      price: 150,
-      type: "Restaurant + Cloud Kitchen",
-      cuisines: ["Gujarati", "Thali"],
-      specials: ["Unlimited", "Many variety"],
-      also: ["Pav Bhaji"],
-      hours: "11:00 AM - 3:30 PM, 7:00 PM - 10:30 PM",
-      phone: "+91-XXXXXXXXXX",
-      maps: "https://maps.google.com/?q=Rajkot",
-      order: "https://wa.me/91XXXXXXXXXX?text=Hi%20I%20want%20to%20order%20Gujarati%20Thali",
-      tags: ["veg","family","value"]
-    }
+  /* -------- data -------- */
+  var SAMPLE = [
+    {category:"smartphones",name:"iPhone 15 Pro",price:134900,cam:9,gam:9,bat:7,seller:"Apple Store",rating:4.8,stock:50,delivery:"2 days",warranty:"1 year"},
+    {category:"smartphones",name:"iPhone 15 Pro",price:132900,cam:9,gam:9,bat:7,seller:"Flipkart",rating:4.7,stock:120,delivery:"1 day",warranty:"1 year"},
+    {category:"smartphones",name:"Samsung S24 Ultra",price:129999,cam:10,gam:9,bat:8,seller:"Samsung",rating:4.9,stock:40,delivery:"3 days",warranty:"1 year"},
+    {category:"smartphones",name:"OnePlus 12",price:63999,cam:8,gam:9,bat:9,seller:"Amazon",rating:4.7,stock:110,delivery:"1 day",warranty:"1 year"},
+    {category:"earbuds",name:"AirPods Pro 2",price:24499,snd:9,anc:10,mic:9,seller:"Amazon",rating:4.8,stock:150,delivery:"1 day",warranty:"1 year"},
+    {category:"earbuds",name:"Sony WF-1000XM5",price:23990,snd:10,anc:10,mic:8,seller:"Flipkart",rating:4.8,stock:90,delivery:"1 day",warranty:"1 year"},
+    {category:"earbuds",name:"Nothing Ear 2",price:8999,snd:7,anc:7,mic:7,seller:"Flipkart",rating:4.5,stock:200,delivery:"1 day",warranty:"1 year"},
+    {category:"laptops",name:"MacBook Air M3",price:113900,perf:9,port:7,scr:9,seller:"Amazon",rating:4.8,stock:55,delivery:"2 days",warranty:"1 year"},
+    {category:"laptops",name:"Dell XPS 13",price:139990,perf:8,port:6,scr:9,seller:"Dell",rating:4.7,stock:40,delivery:"4 days",warranty:"1 year"},
+    {category:"laptops",name:"ThinkPad X1 Carbon",price:149999,perf:8,port:8,scr:8,seller:"Lenovo",rating:4.8,stock:25,delivery:"5 days",warranty:"3 years"}
   ];
 
-  function loadCache(){
-    const cached = safeJsonParse(localStorage.getItem("decide_cache"), null);
-    if(cached && cached.db){
-      state.db = cached.db;
-      state.dbSource = "cache";
-      return true;
-    }
-    return false;
-  }
+  var DB = { smartphones:{}, earbuds:{}, laptops:{} };
+  var RESULTS = [];
+  var payMethod = null;
 
-  function saveCache(){
-    try{
-      localStorage.setItem("decide_cache", JSON.stringify({ db: state.db, ts: Date.now() }));
-    } catch {}
-  }
-
-  function loadDemo(){
-    state.db = { dining: DEMO_DINING, smartphones: [], earbuds: [], laptops: [] };
-    state.dbSource = "demo";
-  }
-
-  async function syncFromSupabase(){
-    if(!state.supabase){
-      toast("Supabase OFF • Using demo/cache");
-      return;
-    }
-    toast("Syncing...");
-    try{
-      // You can store dining/restaurants either in "restaurants" table or inside "products" with category='dining'
-      // Here: we pull dining from "restaurants" if exists, else fallback to products category.
-      const restaurantsTry = await state.supabase.from("restaurants").select("*");
-      if(!restaurantsTry.error && restaurantsTry.data && restaurantsTry.data.length){
-        state.db.dining = restaurantsTry.data.map(r => ({
-          id: r.id ?? r.slug ?? r.name,
-          name: r.name,
-          city: r.city ?? "Rajkot",
-          price: Number(r.price) || 0,
-          type: r.type ?? "Restaurant",
-          cuisines: r.cuisines ?? [],
-          specials: r.specials ?? [],
-          also: r.also ?? [],
-          hours: r.hours ?? "",
-          phone: r.phone ?? "",
-          maps: r.maps ?? "",
-          order: r.order ?? "",
-          tags: r.tags ?? []
-        }));
-        state.dbSource = "live";
-        saveCache();
-        toast("LIVE ✅");
-        renderLobby();
-        return;
-      }
-
-      // fallback: products where category='dining'
-      const { data, error } = await state.supabase.from(TABLE_PRODUCTS).select("*");
-      if(error) throw error;
-
-      // minimal mapping: if you only have products table, use it for devices; dining can be category='dining'
-      const dining = [];
-      (data || []).forEach(p => {
-        if(p.category === "dining"){
-          dining.push({
-            id: p.id ?? p.name,
-            name: p.name,
-            city: p.city ?? "Rajkot",
-            price: Number(p.price)||0,
-            type: p.type ?? "Restaurant",
-            cuisines: (p.cuisines ?? "").split(",").map(s=>s.trim()).filter(Boolean),
-            specials: (p.specials ?? "").split(",").map(s=>s.trim()).filter(Boolean),
-            also: (p.also ?? "").split(",").map(s=>s.trim()).filter(Boolean),
-            hours: p.hours ?? "",
-            phone: p.phone ?? "",
-            maps: p.maps ?? "",
-            order: p.order ?? "",
-            tags: (p.tags ?? "").split(",").map(s=>s.trim()).filter(Boolean)
-          });
+  function loadToMemory(arr){
+    DB = { smartphones:{}, earbuds:{}, laptops:{} };
+    (arr || []).forEach(function(p){
+      if(!p || !p.category || !p.name) return;
+      if(!DB[p.category]) DB[p.category] = {};
+      if(!DB[p.category][p.name]) DB[p.category][p.name] = [];
+      DB[p.category][p.name].push({
+        name:p.name,
+        price:Number(p.price)||0,
+        seller:p.seller||"Seller",
+        rating:Number(p.rating)||4.0,
+        stock:Number(p.stock)||0,
+        delivery:p.delivery||"2-5 days",
+        warranty:p.warranty||"6 months",
+        attr:{
+          cam:Number(p.cam)||0, gam:Number(p.gam)||0, bat:Number(p.bat)||0,
+          snd:Number(p.snd)||0, anc:Number(p.anc)||0, mic:Number(p.mic)||0,
+          perf:Number(p.perf)||0, port:Number(p.port)||0, scr:Number(p.scr)||0
         }
       });
-
-      if(dining.length) state.db.dining = dining;
-      state.dbSource = "live";
-      saveCache();
-      toast("LIVE ✅");
-      renderLobby();
-    } catch(e){
-      toast("Sync failed • Using cache/demo");
-    }
+    });
   }
 
-  /* =========================
-     UI
-  ========================= */
+  function loadOrders(){
+    try{
+      var x = JSON.parse(localStorage.getItem("order_history") || "[]");
+      STATE.orders = Array.isArray(x) ? x : [];
+    }catch(e){ STATE.orders = []; }
+  }
+  function saveOrders(){
+    try{ localStorage.setItem("order_history", JSON.stringify(STATE.orders)); }catch(e){}
+  }
+
+  function labelDomain(d){
+    if(d==="smartphones") return "PHONES";
+    if(d==="earbuds") return "AUDIO";
+    return "LAPTOPS";
+  }
+
+  /* -------- renderers -------- */
   function renderLobby(){
-    const app = $("app");
-    const badge = state.dbSource === "live" ? "LIVE" : (state.dbSource === "cache" ? "CACHE" : "DEMO");
+    var app = $("app");
+    var cartCount = STATE.cart.length;
 
-    app.innerHTML = `
-      <div class="header">
-        <div class="header-badge">
-          DECIDE OS v${APP_VERSION} <span class="dot"></span>
-          <span class="pill">DINING</span>
-          <span class="pill">ONDC LAYER</span>
-        </div>
-        <button class="btn-ghost" onclick="window.__decide.home()">HOME</button>
-      </div>
+    app.innerHTML =
+      '<div class="header">' +
+        '<div class="header-badge">DECIDE <div class="status-dot"></div></div>' +
+        '<button class="btn" type="button" data-action="home">HOME</button>' +
+      '</div>' +
 
-      <div class="grid">
-        <div class="card" onclick="window.__decide.openDining()">
-          <div class="icon">🍽️</div>
-          <div class="title">DINING</div>
-          <div class="tag tag-live">${badge} DATA</div>
-        </div>
+      '<div class="grid">' +
 
-        <div class="card disabled" onclick="window.__decide.nope()">
-          <div class="icon">📍</div>
-          <div class="title">NEAR ME</div>
-          <div class="tag tag-soon">NEXT</div>
-        </div>
+        '<div class="card" role="button" tabindex="0" data-action="domain" data-domain="smartphones">' +
+          '<div class="icon">📱</div><div class="title">PHONES</div><div class="tag tag-live">OPEN</div>' +
+        '</div>' +
 
-        <div class="card disabled" onclick="window.__decide.nope()">
-          <div class="icon">🛵</div>
-          <div class="title">DELIVERY</div>
-          <div class="tag tag-soon">NEXT</div>
-        </div>
+        '<div class="card" role="button" tabindex="0" data-action="domain" data-domain="earbuds">' +
+          '<div class="icon">🎧</div><div class="title">AUDIO</div><div class="tag tag-live">OPEN</div>' +
+        '</div>' +
 
-        <div class="card" onclick="window.__decide.settings()">
-          <div class="icon">⚙️</div>
-          <div class="title">SETTINGS</div>
-          <div class="tag tag-neutral">TOOLS</div>
-        </div>
-      </div>
+        '<div class="card" role="button" tabindex="0" data-action="domain" data-domain="laptops">' +
+          '<div class="icon">💻</div><div class="title">LAPTOPS</div><div class="tag tag-live">OPEN</div>' +
+        '</div>' +
 
-      <button class="bottom" onclick="window.__decide.sync()">🔄 SYNC</button>
+        '<div class="card" role="button" tabindex="0" data-action="orders">' +
+          '<div class="icon">📦</div><div class="title">ORDERS</div><div class="tag tag-beta">TRACK</div>' +
+        '</div>' +
 
-      <div class="small">
-        Session: ${escapeHtml(state.sessionId)} • Source: ${escapeHtml(state.dbSource.toUpperCase())} • Device: ${escapeHtml(state.deviceId)}
-      </div>
-    `;
+        '<div class="card" role="button" tabindex="0" data-action="cart" aria-disabled="' + (cartCount? "false":"true") + '">' +
+          '<div class="icon">🛒</div><div class="title">CART</div><div class="tag tag-neutral">' + cartCount + ' ITEMS</div>' +
+        '</div>' +
+
+        '<div class="card" role="button" tabindex="0" data-action="settings">' +
+          '<div class="icon">⚙️</div><div class="title">SETTINGS</div><div class="tag tag-links">TOOLS</div>' +
+        '</div>' +
+
+      '</div>' +
+
+      '<button class="bottom" type="button" data-action="refresh">REFRESH</button>';
   }
 
-  function renderDiningList(){
-    const app = $("app");
-    state.domain = "dining";
-    track("open_module");
+  function renderFilters(domain){
+    STATE.domain = domain;
+    STATE.filters = [];
 
-    const list = state.db.dining || [];
-    if(!list.length){
-      app.innerHTML = `
-        <div class="screen">
-          <div class="h1">DINING</div>
-          <p class="p">No restaurants yet. Add one in Supabase or use demo.</p>
-          <button class="action" onclick="window.__decide.sync()">SYNC</button>
-          <button class="back" onclick="window.__decide.home()">← BACK</button>
-        </div>
-      `;
-      return;
-    }
+    var filters = {
+      smartphones:["cam","gam","bat"],
+      earbuds:["snd","anc","mic"],
+      laptops:["perf","port","scr"]
+    };
+    var labels = {
+      cam:"CAMERA",gam:"GAMING",bat:"BATTERY",
+      snd:"SOUND",anc:"NOISE",mic:"MIC",
+      perf:"POWER",port:"TRAVEL",scr:"SCREEN"
+    };
 
-    app.innerHTML = `
-      <div class="screen">
-        <div class="h1">DINING</div>
-        <p class="p">Start with your relative’s restaurant. Add more in Rajkot after testing.</p>
+    var btns = (filters[domain] || []).map(function(f){
+      return '<div class="filter-btn" role="button" tabindex="0" data-action="toggle" data-filter="' + f + '">' + labels[f] + '</div>';
+    }).join("");
 
-        ${list.map(r => `
-          <div class="card" style="align-items:flex-start;gap:6px" onclick="window.__decide.openRestaurant('${escapeHtml(r.id)}')">
-            <div style="display:flex;justify-content:space-between;width:100%;gap:10px">
-              <div>
-                <div class="title" style="text-align:left">${escapeHtml(r.name)}</div>
-                <div style="opacity:.7;font-weight:800">${escapeHtml(r.city)} • ₹${Number(r.price||0)}</div>
-              </div>
-              <div class="tag tag-live">OPEN</div>
-            </div>
-            <div style="opacity:.7">Type: ${escapeHtml(r.type || "Restaurant")}</div>
-            <div style="opacity:.7">Special: ${(r.specials||[]).slice(0,3).map(escapeHtml).join(", ")}</div>
-          </div>
-        `).join("")}
-
-        <button class="back" onclick="window.__decide.home()">← HOME</button>
-      </div>
-    `;
+    $("app").innerHTML =
+      '<div class="wrap">' +
+        '<div class="h1">' + labelDomain(domain) + '</div>' +
+        '<div class="p">Pick what matters most</div>' +
+        '<div class="filter-grid">' + btns + '</div>' +
+        '<button class="action" type="button" data-action="search">FIND OPTIONS</button>' +
+        '<button class="secondary" type="button" data-action="home">← BACK</button>' +
+      '</div>';
   }
 
-  function renderRestaurant(id){
-    const app = $("app");
-    const r = (state.db.dining || []).find(x => String(x.id) === String(id));
-    if(!r){ toast("Not found"); renderDiningList(); return; }
+  function renderMarketplace(){
+    if(!RESULTS.length){ toast("No results"); renderFilters(STATE.domain); return; }
 
-    state.selectedRestaurantId = id;
-    track("open_restaurant",{product:r.name});
+    var list = RESULTS.map(function(p, idx){
+      var discount = Math.floor(Math.random()*20)+5;
+      var original = p.price ? Math.floor(p.price/(1-discount/100)) : p.price;
+      var stockColor = (p.stock > 50) ? "var(--accent)" : "#FFA726";
 
-    const cuisines = (r.cuisines||[]).join(", ");
-    const specials = (r.specials||[]).join(", ");
-    const also = (r.also||[]).join(", ");
+      return (
+        '<div class="result">' +
+          '<div class="row">' +
+            '<div>' +
+              '<div class="name">' + esc(p.name) + '</div>' +
+              '<div class="seller">' +
+                '<span class="badge">' + esc(p.seller) + '</span>' +
+                '<span class="rating">⭐ ' + Number(p.rating||0).toFixed(1) + '</span>' +
+              '</div>' +
+            '</div>' +
+            '<div class="price">' +
+              '<div class="price-main">₹' + Number(p.price||0).toLocaleString("en-IN") + '</div>' +
+              '<div class="price-original">₹' + Number(original||0).toLocaleString("en-IN") + '</div>' +
+              '<div class="discount">' + discount + '% OFF</div>' +
+            '</div>' +
+          '</div>' +
 
-    app.innerHTML = `
-      <div class="screen">
-        <div class="h1">${escapeHtml(r.name)}</div>
-        <p class="p">${escapeHtml(r.city)} • ₹${Number(r.price||0)} • ${escapeHtml(r.type||"Restaurant")}</p>
+          '<div class="details">' +
+            '<div><div class="label">Availability</div><div class="value" style="color:' + stockColor + '">' + Number(p.stock||0) + ' available</div></div>' +
+            '<div><div class="label">Delivery</div><div class="value">' + esc(p.delivery||"") + '</div></div>' +
+            '<div><div class="label">Warranty</div><div class="value">' + esc(p.warranty||"") + '</div></div>' +
+            '<div><div class="label">Bill</div><div class="value" style="color:var(--accent)">Included ✓</div></div>' +
+          '</div>' +
 
-        <div class="card" style="align-items:flex-start">
-          <div style="opacity:.7;font-weight:900">Cuisines</div>
-          <div style="font-weight:900">${escapeHtml(cuisines || "—")}</div>
-          <div style="margin-top:10px;opacity:.7;font-weight:900">Specials</div>
-          <div style="font-weight:900">${escapeHtml(specials || "—")}</div>
-          <div style="margin-top:10px;opacity:.7;font-weight:900">Also</div>
-          <div style="font-weight:900">${escapeHtml(also || "—")}</div>
-          <div style="margin-top:10px;opacity:.7;font-weight:900">Hours</div>
-          <div style="font-weight:900">${escapeHtml(r.hours || "—")}</div>
-        </div>
+          '<div class="actions">' +
+            '<button class="buy" type="button" data-action="buy" data-idx="' + idx + '">BUY NOW</button>' +
+            '<button class="add" type="button" data-action="add" data-idx="' + idx + '">ADD TO CART</button>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join("");
 
-        <button class="action" onclick="window.__decide.orderNow()">ORDER NOW</button>
-        <button class="back" onclick="window.__decide.openDining()">← BACK</button>
-      </div>
-    `;
+    $("app").innerHTML =
+      '<div class="results">' +
+        '<div style="text-align:center;margin-bottom:30px">' +
+          '<h2 style="margin:0;font-size:1.8rem">' + labelDomain(STATE.domain) + '</h2>' +
+          '<p style="color:#888;margin-top:10px">Top picks</p>' +
+        '</div>' +
+        list +
+        '<button class="secondary" type="button" data-action="change" style="margin-top:20px">← CHANGE</button>' +
+        '<button class="secondary" type="button" data-action="home" style="margin-top:10px">← HOME</button>' +
+      '</div>';
   }
 
-  function orderNow(){
-    const r = (state.db.dining || []).find(x => String(x.id) === String(state.selectedRestaurantId));
-    if(!r) return toast("Restaurant missing");
+  function renderCart(){
+    if(!STATE.cart.length){ toast("Cart is empty"); renderLobby(); return; }
 
-    track("order_click",{product:r.name});
+    var subtotal = STATE.cart.reduce(function(s,p){ return s + (Number(p.price)||0); }, 0);
+    var gst = Math.floor(subtotal * 0.18);
+    var total = subtotal + gst;
 
-    // Prefer WhatsApp order link if present
-    if(r.order){
-      window.open(r.order, "_blank");
-      return;
-    }
-    // fallback to phone
-    if(r.phone){
-      window.location.href = "tel:" + r.phone.replace(/\s+/g,"");
-      return;
-    }
-    toast("No order link yet");
+    var items = STATE.cart.map(function(it, idx){
+      return (
+        '<div style="display:flex;justify-content:space-between;gap:10px;padding:15px;background:rgba(255,255,255,0.03);border-radius:12px;margin-bottom:10px">' +
+          '<div>' +
+            '<div style="font-weight:900">' + esc(it.name) + '</div>' +
+            '<div style="font-size:0.85rem;color:#888">' + esc(it.seller) + '</div>' +
+          '</div>' +
+          '<div style="text-align:right;min-width:120px">' +
+            '<div style="font-weight:900;color:var(--brand-orange)">₹' + Number(it.price||0).toLocaleString("en-IN") + '</div>' +
+            '<button type="button" data-action="remove" data-idx="' + idx + '" style="background:transparent;border:none;color:#ff4444;cursor:pointer;font-size:0.8rem;margin-top:5px">Remove</button>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join("");
+
+    $("app").innerHTML =
+      '<div class="wrap">' +
+        '<div class="h1">CART</div>' +
+        '<div class="result" style="margin-bottom:20px">' +
+          '<div style="font-weight:900;margin-bottom:10px">Items (' + STATE.cart.length + ')</div>' +
+          items +
+        '</div>' +
+        '<div class="result">' +
+          '<div class="label">Subtotal</div><div class="value">₹' + subtotal.toLocaleString("en-IN") + '</div>' +
+          '<div style="height:8px"></div>' +
+          '<div class="label">Tax</div><div class="value">₹' + gst.toLocaleString("en-IN") + '</div>' +
+          '<div style="height:12px;border-top:1px solid var(--border);margin-top:12px;padding-top:12px"></div>' +
+          '<div class="value" style="color:var(--brand-orange);font-size:1.2rem">Pay ₹' + total.toLocaleString("en-IN") + '</div>' +
+        '</div>' +
+        '<button class="action" type="button" data-action="pay">PAY →</button>' +
+        '<button class="secondary" type="button" data-action="home">← HOME</button>' +
+      '</div>';
+  }
+
+  function renderPayment(){
+    if(!STATE.cart.length){ toast("Cart is empty"); renderLobby(); return; }
+    payMethod = null;
+
+    $("app").innerHTML =
+      '<div class="wrap">' +
+        '<div class="h1">PAYMENT</div>' +
+        '<div class="result" style="margin-bottom:20px">' +
+          '<div style="font-weight:900;margin-bottom:12px">Choose</div>' +
+
+          '<div class="payment-option" role="button" tabindex="0" data-action="pm" data-method="upi">' +
+            '<div style="font-size:2rem">📱</div><div><div style="font-weight:900">UPI</div><div style="color:#888;font-size:.85rem">GPay / PhonePe / Paytm</div></div>' +
+          '</div>' +
+
+          '<div style="height:10px"></div>' +
+
+          '<div class="payment-option" role="button" tabindex="0" data-action="pm" data-method="card">' +
+            '<div style="font-size:2rem">💳</div><div><div style="font-weight:900">Card</div><div style="color:#888;font-size:.85rem">Visa / Mastercard / RuPay</div></div>' +
+          '</div>' +
+
+          '<div style="height:10px"></div>' +
+
+          '<div class="payment-option" role="button" tabindex="0" data-action="pm" data-method="cod">' +
+            '<div style="font-size:2rem">💵</div><div><div style="font-weight:900">Cash</div><div style="color:#888;font-size:.85rem">Pay on delivery</div></div>' +
+          '</div>' +
+        '</div>' +
+
+        '<button class="action" type="button" data-action="place">PLACE ORDER</button>' +
+        '<button class="secondary" type="button" data-action="cart">← BACK</button>' +
+      '</div>';
+  }
+
+  function renderOrders(){
+    loadOrders();
+    if(!STATE.orders.length){ toast("No orders"); renderLobby(); return; }
+
+    var list = STATE.orders.slice().reverse().map(function(o){
+      return (
+        '<div class="result" role="button" tabindex="0" data-action="track" data-order="' + esc(o.id) + '" style="cursor:pointer">' +
+          '<div class="row">' +
+            '<div><div style="font-weight:900;font-size:1.1rem">' + esc(o.id) + '</div><div style="color:#888;font-size:.85rem;margin-top:5px">' +
+              new Date(o.timestamp).toLocaleDateString("en-IN") +
+            '</div></div>' +
+            '<div style="text-align:right">' +
+              '<div style="font-weight:900;color:var(--brand-orange)">₹' + Number(o.total||0).toLocaleString("en-IN") + '</div>' +
+              '<div style="color:var(--accent);font-size:.85rem;margin-top:5px">' + esc(String(o.status||"").toUpperCase()) + '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join("");
+
+    $("app").innerHTML =
+      '<div class="wrap">' +
+        '<div class="h1">ORDERS</div>' +
+        list +
+        '<button class="secondary" type="button" data-action="home" style="margin-top:10px">← HOME</button>' +
+      '</div>';
+  }
+
+  function renderTracking(orderId){
+    $("app").innerHTML =
+      '<div class="wrap">' +
+        '<div class="h1">TRACKING</div>' +
+        '<div class="p">' + esc(orderId) + '</div>' +
+        '<div class="result">' +
+          '<div style="font-weight:900">Confirmed ✓</div><div style="color:#888;margin-top:6px">Today</div>' +
+          '<div style="height:12px"></div><div style="font-weight:900">Processing ✓</div><div style="color:#888;margin-top:6px">Today</div>' +
+          '<div style="height:12px"></div><div style="font-weight:900">Out for delivery ⏳</div><div style="color:#888;margin-top:6px">Soon</div>' +
+          '<div style="height:12px"></div><div style="font-weight:900">Delivered 📦</div><div style="color:#888;margin-top:6px">Soon</div>' +
+        '</div>' +
+        '<button class="secondary" type="button" data-action="orders" style="margin-top:10px">← BACK</button>' +
+        '<button class="secondary" type="button" data-action="home" style="margin-top:10px">← HOME</button>' +
+      '</div>';
   }
 
   function renderSettings(){
-    const app = $("app");
-    const last = localStorage.getItem("decide_cache_ts");
-    app.innerHTML = `
-      <div class="screen">
-        <div class="h1">SETTINGS</div>
-        <p class="p">Version ${APP_VERSION} • Source: ${escapeHtml(state.dbSource)}</p>
-        <button class="action" onclick="window.__decide.sync()">SYNC NOW</button>
-        <button class="back" onclick="window.__decide.nuke()">NUKE CACHE</button>
-        <button class="back" onclick="window.__decide.home()">← HOME</button>
-      </div>
-    `;
+    $("app").innerHTML =
+      '<div class="wrap">' +
+        '<div class="h1">SETTINGS</div>' +
+        '<div class="result"><div style="font-weight:900;margin-bottom:8px">Help</div><div style="color:#888;line-height:1.6">Choose category → pick priorities → compare → buy.</div></div>' +
+        '<button class="action" type="button" data-action="reset">RESET APP</button>' +
+        '<button class="secondary" type="button" data-action="home">← BACK</button>' +
+      '</div>';
   }
 
-  async function nukeCache(){
+  /* -------- actions -------- */
+  function toggleFilter(key, el){
+    var i = STATE.filters.indexOf(key);
+    if(i >= 0){ STATE.filters.splice(i, 1); el.classList.remove("active"); }
+    else { STATE.filters.push(key); el.classList.add("active"); }
+  }
+
+  function search(){
+    var domain = STATE.domain;
+    var db = DB[domain];
+    if(!db || !Object.keys(db).length){ toast("No items yet"); return; }
+
+    var all = [];
+    Object.keys(db).forEach(function(name){
+      (db[name] || []).forEach(function(seller){
+        var score = 0;
+        if(STATE.filters.length){
+          STATE.filters.forEach(function(f){ score += (seller.attr && seller.attr[f]) ? seller.attr[f] : 0; });
+        }
+        all.push({ name:seller.name, price:seller.price, seller:seller.seller, rating:seller.rating, stock:seller.stock, delivery:seller.delivery, warranty:seller.warranty, score:score });
+      });
+    });
+
+    all.sort(function(a,b){
+      if(b.score !== a.score) return b.score - a.score;
+      return a.price - b.price;
+    });
+
+    RESULTS = all.slice(0,10);
+    renderMarketplace();
+  }
+
+  function add(idx){
+    var p = RESULTS[idx]; if(!p) return;
+    STATE.cart.push(p);
+    toast("Added to cart");
+  }
+
+  function buy(idx){
+    var p = RESULTS[idx]; if(!p) return;
+    STATE.cart = [p];
+    renderPayment();
+  }
+
+  function remove(idx){
+    STATE.cart.splice(idx, 1);
+    if(!STATE.cart.length){ toast("Cart cleared"); renderLobby(); return; }
+    toast("Removed");
+    renderCart();
+  }
+
+  function place(){
+    if(!payMethod){ toast("Pick payment method"); return; }
+
+    var subtotal = STATE.cart.reduce(function(s,p){ return s + (Number(p.price)||0); }, 0);
+    var gst = Math.floor(subtotal * 0.18);
+    var total = subtotal + gst;
+
+    var id = "ORD-" + Math.random().toString(36).slice(2,10).toUpperCase();
+    var order = { id:id, items:STATE.cart.slice(), subtotal:subtotal, tax:gst, total:total, payment:payMethod, status:"confirmed", timestamp:new Date().toISOString() };
+
+    loadOrders();
+    STATE.orders.push(order);
+    saveOrders();
+
+    STATE.cart = [];
+    payMethod = null;
+
+    $("app").innerHTML =
+      '<div class="wrap" style="text-align:center;margin-top:40px">' +
+        '<div style="font-size:5rem;margin-bottom:20px">✅</div>' +
+        '<div class="h1" style="color:var(--accent)">ORDER PLACED</div>' +
+        '<div class="p">Order: ' + esc(id) + '</div>' +
+        '<button class="action" type="button" data-action="track" data-order="' + esc(id) + '">TRACK</button>' +
+        '<button class="secondary" type="button" data-action="pdf" data-order="' + esc(id) + '" style="margin-top:10px">DOWNLOAD PDF</button>' +
+        '<button class="secondary" type="button" data-action="home" style="margin-top:10px">← HOME</button>' +
+      '</div>';
+    toast("Done");
+  }
+
+  function pdf(orderId){
     try{
-      // best-effort
-      localStorage.removeItem("decide_cache");
-      toast("Cache cleared ✅");
-      loadDemo();
-      renderLobby();
-    } catch {
-      toast("Nuke failed");
+      loadOrders();
+      var order = null;
+      for(var i=0;i<STATE.orders.length;i++){ if(STATE.orders[i].id === orderId){ order = STATE.orders[i]; break; } }
+      if(!order){ toast("Order not found"); return; }
+
+      var jspdf = window.jspdf;
+      if(!jspdf || !jspdf.jsPDF){ toast("PDF not ready"); return; }
+
+      var doc = new jspdf.jsPDF();
+      doc.setFontSize(18);
+      doc.text("DECIDE RECEIPT", 14, 18);
+      doc.setFontSize(11);
+      doc.text("Order: " + order.id, 14, 28);
+      doc.text("Date: " + new Date(order.timestamp).toLocaleString("en-IN"), 14, 35);
+      doc.text("Payment: " + String(order.payment||"").toUpperCase(), 14, 42);
+
+      var y = 55;
+      doc.setFontSize(12);
+      doc.text("Items", 14, y);
+      y += 8;
+      doc.setFontSize(10);
+
+      for(var k=0;k<order.items.length;k++){
+        var it = order.items[k];
+        var line = (k+1) + ". " + it.name + " (" + it.seller + ")";
+        doc.text(line.substring(0, 80), 14, y);
+        doc.text("₹" + Number(it.price||0).toLocaleString("en-IN"), 170, y, {align:"right"});
+        y += 7;
+        if(y > 270){ doc.addPage(); y = 20; }
+      }
+
+      y += 8;
+      doc.setFontSize(11);
+      doc.text("Subtotal: ₹" + Number(order.subtotal||0).toLocaleString("en-IN"), 14, y); y += 7;
+      doc.text("Tax: ₹" + Number(order.tax||0).toLocaleString("en-IN"), 14, y); y += 7;
+      doc.setFontSize(13);
+      doc.text("Total: ₹" + Number(order.total||0).toLocaleString("en-IN"), 14, y);
+
+      doc.save("decide-" + order.id + ".pdf");
+      toast("PDF saved");
+    }catch(e){
+      console.error(e);
+      toast("PDF failed");
     }
   }
 
-  /* =========================
-     PUBLIC API (for onclick)
-  ========================= */
-  window.__decide = {
-    home: () => { state.domain=null; state.filters=[]; renderLobby(); },
-    sync: () => syncFromSupabase(),
-    openDining: () => renderDiningList(),
-    openRestaurant: (id) => renderRestaurant(id),
-    orderNow: () => orderNow(),
-    settings: () => renderSettings(),
-    nuke: () => nukeCache(),
-    nope: () => toast("Coming next"),
-  };
-
-  /* =========================
-     INIT (NO BLANK)
-  ========================= */
-  function init(){
-    initDeviceId();
-    initSupabase();
-
-    // Always render immediately
-    if(!loadCache()) loadDemo();
-    renderLobby();
-
-    // analytics flusher (safe)
-    state.flushTimer = setInterval(flushAnalytics, 8000);
-
-    // background sync
-    setTimeout(syncFromSupabase, 800);
+  function reset(){
+    if(confirm("Reset app data?")){
+      try{ localStorage.removeItem("order_history"); }catch(e){}
+      STATE.cart = [];
+      STATE.orders = [];
+      toast("Reset done");
+      renderLobby();
+    }
   }
 
-  document.addEventListener("DOMContentLoaded", init);
+  /* -------- event delegation -------- */
+  function handle(el){
+    var action = el.getAttribute("data-action");
+    if(!action) return;
+
+    if(el.getAttribute("aria-disabled") === "true") return;
+
+    if(action === "home"){ renderLobby(); return; }
+    if(action === "domain"){ renderFilters(el.getAttribute("data-domain")); return; }
+    if(action === "toggle"){ toggleFilter(el.getAttribute("data-filter"), el); return; }
+    if(action === "search"){ search(); return; }
+    if(action === "change"){ renderFilters(STATE.domain); return; }
+
+    if(action === "add"){ add(Number(el.getAttribute("data-idx"))); return; }
+    if(action === "buy"){ buy(Number(el.getAttribute("data-idx"))); return; }
+
+    if(action === "cart"){ renderCart(); return; }
+    if(action === "remove"){ remove(Number(el.getAttribute("data-idx"))); return; }
+    if(action === "pay"){ renderPayment(); return; }
+
+    if(action === "pm"){
+      var method = el.getAttribute("data-method");
+      var opts = document.querySelectorAll(".payment-option");
+      for(var i=0;i<opts.length;i++) opts[i].classList.remove("selected");
+      el.classList.add("selected");
+      payMethod = method;
+      return;
+    }
+
+    if(action === "place"){ place(); return; }
+
+    if(action === "orders"){ renderOrders(); return; }
+    if(action === "track"){ renderTracking(el.getAttribute("data-order")); return; }
+
+    if(action === "settings"){ renderSettings(); return; }
+    if(action === "reset"){ reset(); return; }
+
+    if(action === "pdf"){ pdf(el.getAttribute("data-order")); return; }
+
+    // refresh is a stub in this “safe” build
+    if(action === "refresh"){ toast("Refresh (offline demo)"); return; }
+  }
+
+  document.addEventListener("click", function(e){
+    var el = e.target.closest("[data-action]");
+    if(el) handle(el);
+  });
+
+  document.addEventListener("keydown", function(e){
+    if(e.key !== "Enter" && e.key !== " ") return;
+    var el = e.target.closest("[data-action][role='button']");
+    if(!el) return;
+    e.preventDefault();
+    handle(el);
+  });
+
+  /* -------- boot -------- */
+  function init(){
+    loadOrders();
+    loadToMemory(SAMPLE);
+    renderLobby();
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", init, {once:true});
+    setTimeout(function(){ try{ if(!$("app").innerHTML.trim()) init(); }catch(e){} }, 1200);
+  }else{
+    init();
+  }
+
 })();
 </script>
 </body>
