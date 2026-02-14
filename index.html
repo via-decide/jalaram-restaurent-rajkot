@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Decide OS v2.1 - Dining + ONDC Layer</title>
+<meta name="theme-color" content="#ff671f" />
+<link rel="manifest" href="manifest.json" />
+
+<!-- Supabase (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+:root{
+  --brand-orange:#ff671f;
+  --brand-dark:#000;
+  --border:rgba(255,255,255,0.15);
+  --accent:#00e676;
+  --blue:#1e88e5;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%;background:#000;color:#fff;font-family:var(--font);-webkit-font-smoothing:antialiased}
+#app{min-height:100vh;display:flex;flex-direction:column;padding:20px;padding-bottom:80px}
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;gap:12px}
+.header-badge{
+  background:rgba(255,103,31,0.1);
+  border:2px solid var(--brand-orange);
+  padding:12px 18px;border-radius:12px;font-size:.85rem;font-weight:800;letter-spacing:1px;
+  color:var(--brand-orange);display:flex;align-items:center;gap:10px;flex:1;
+}
+.pill{background:rgba(30,136,229,.12);border:1px solid rgba(30,136,229,.35);color:var(--blue);padding:4px 10px;border-radius:999px;font-size:.72rem;font-weight:700}
+.dot{width:10px;height:10px;background:var(--accent);border-radius:50%;box-shadow:0 0 10px var(--accent)}
+.btn-ghost{
+  background:transparent;border:2px solid rgba(255,255,255,0.25);
+  padding:10px 18px;border-radius:999px;color:#fff;font-weight:800;cursor:pointer
+}
+.btn-ghost:hover{background:rgba(255,255,255,0.08)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+.card{
+  background:rgba(20,20,20,0.55);
+  border:1px solid var(--border);
+  border-radius:22px;
+  padding:22px 16px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  cursor:pointer;transition:.2s;
+  min-height:150px;
+}
+.card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,0.25);background:rgba(30,30,30,0.7)}
+.icon{font-size:2.8rem}
+.title{font-weight:900;letter-spacing:.4px;text-align:center}
+.tag{font-size:.72rem;font-weight:800;letter-spacing:1.4px;padding:4px 10px;border-radius:8px}
+.tag-live{color:var(--accent);background:rgba(0,230,118,.12);border:1px solid rgba(0,230,118,.25)}
+.tag-beta{color:#4CAF50;background:rgba(76,175,80,.12);border:1px solid rgba(76,175,80,.25)}
+.tag-neutral{color:#aaa;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)}
+.tag-soon{color:#FFA726;background:rgba(255,167,38,.12);border:1px solid rgba(255,167,38,.25)}
+.bottom{
+  width:100%;background:transparent;border:2px solid rgba(255,255,255,0.18);
+  padding:16px;border-radius:18px;font-weight:900;cursor:pointer;margin-bottom:14px
+}
+.bottom:hover{background:rgba(255,255,255,0.08);border-color:rgba(255,255,255,0.3)}
+.small{opacity:.35;text-align:center;margin-top:auto;font-size:.8rem}
+
+.screen{max-width:650px;margin:0 auto;width:100%}
+.h1{font-size:1.7rem;font-weight:1000;text-align:center;margin:10px 0 18px;text-transform:uppercase;letter-spacing:1px}
+.p{color:#aaa;text-align:center;margin:0 0 18px;line-height:1.5}
+.filters{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.fbtn{
+  background:rgba(20,20,20,0.55);border:2px solid var(--border);
+  padding:18px;border-radius:16px;text-align:center;font-weight:1000;cursor:pointer;text-transform:uppercase
+}
+.fbtn.active{background:var(--brand-orange);border-color:var(--brand-orange);color:#000}
+.action{width:100%;background:var(--brand-orange);border:none;color:#000;padding:16px;border-radius:16px;font-weight:1000;cursor:pointer}
+.action:hover{filter:brightness(1.05);transform:translateY(-1px)}
+.back{width:100%;background:transparent;border:2px solid var(--border);color:#fff;padding:14px;border-radius:16px;font-weight:1000;cursor:pointer;margin-top:10px}
+.back:hover{background:rgba(255,255,255,0.08)}
+
+.toast{
+  position:fixed;left:50%;bottom:28px;transform:translateX(-50%);
+  background:#111;border:1px solid #333;padding:10px 18px;border-radius:999px;
+  font-weight:800;font-size:.85rem;opacity:0;transition:.25s;z-index:9999
+}
+.toast.show{opacity:1}
+
+@media (max-width:600px){ .grid{gap:12px} .card{min-height:140px} }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* =========================
+     CONFIG
+  ========================= */
+  const APP_VERSION = "2.1.0";
+  const SUPABASE_URL = "https://adzkzeghlgzpbageszqh.supabase.co";
+  const SUPABASE_ANON_KEY = "PASTE_YOUR_ANON_KEY_HERE"; // <-- put your anon key
+  const TABLE_PRODUCTS = "products";
+  const TABLE_ANALYTICS = "analytics_events";
+
+  /* =========================
+     STATE
+  ========================= */
+  const $ = (id) => document.getElementById(id);
+  const state = {
+    deviceId: null,
+    sessionId: "SID-" + Math.random().toString(36).slice(2,6).toUpperCase(),
+    domain: null,
+    filters: [],
+    dbSource: "demo",
+    db: { dining: [], smartphones: [], earbuds: [], laptops: [] },
+    supabase: null,
+    analyticsQueue: [],
+    flushTimer: null,
+    selectedRestaurantId: null,
+  };
+
+  /* =========================
+     SAFE HELPERS
+  ========================= */
+  function toast(msg){
+    const t = $("toast");
+    if(!t) return;
+    t.textContent = msg;
+    t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 2200);
+  }
+  function safeJsonParse(s, fallback){
+    try { return JSON.parse(s); } catch { return fallback; }
+  }
+  function escapeHtml(str){
+    return String(str ?? "")
+      .replaceAll("&","&amp;").replaceAll("<","&lt;")
+      .replaceAll(">","&gt;").replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+  }
+
+  /* =========================
+     DEVICE ID
+  ========================= */
+  function initDeviceId(){
+    let id = localStorage.getItem("decide_device_id");
+    if(!id){
+      id = (crypto && crypto.randomUUID) ? crypto.randomUUID() : ("DID-" + Math.random().toString(36).slice(2));
+      localStorage.setItem("decide_device_id", id);
+    }
+    state.deviceId = id;
+  }
+
+  /* =========================
+     SUPABASE INIT (SAFE)
+  ========================= */
+  function initSupabase(){
+    try{
+      if(window.supabase && window.supabase.createClient && SUPABASE_ANON_KEY && !SUPABASE_ANON_KEY.includes("PASTE_")){
+        state.supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      } else {
+        state.supabase = null;
+      }
+    } catch {
+      state.supabase = null;
+    }
+  }
+
+  /* =========================
+     ANALYTICS (SAFE / OPTIONAL)
+  ========================= */
+  function track(eventType, meta={}){
+    state.analyticsQueue.push({
+      device_id: state.deviceId,
+      session_id: state.sessionId,
+      event_type: eventType,
+      module: state.domain,
+      product: meta.product ?? null,
+      created_at: new Date().toISOString()
+    });
+    if(state.analyticsQueue.length >= 10) flushAnalytics();
+  }
+
+  async function flushAnalytics(){
+    if(!state.supabase) { state.analyticsQueue = []; return; }
+    if(!state.analyticsQueue.length) return;
+    const payload = state.analyticsQueue.slice();
+    state.analyticsQueue = [];
+    try{
+      await state.supabase.from(TABLE_ANALYTICS).insert(payload);
+    } catch {
+      // ignore: RLS/table missing/etc
+    }
+  }
+
+  /* =========================
+     DATA LAYER
+  ========================= */
+  const DEMO_DINING = [
+    {
+      id: "rajkot-thali-001",
+      name: "Unlimited Gujarati Thali (Rajkot)",
+      city: "Rajkot",
+      price: 150,
+      type: "Restaurant + Cloud Kitchen",
+      cuisines: ["Gujarati", "Thali"],
+      specials: ["Unlimited", "Many variety"],
+      also: ["Pav Bhaji"],
+      hours: "11:00 AM - 3:30 PM, 7:00 PM - 10:30 PM",
+      phone: "+91-XXXXXXXXXX",
+      maps: "https://maps.google.com/?q=Rajkot",
+      order: "https://wa.me/91XXXXXXXXXX?text=Hi%20I%20want%20to%20order%20Gujarati%20Thali",
+      tags: ["veg","family","value"]
+    }
+  ];
+
+  function loadCache(){
+    const cached = safeJsonParse(localStorage.getItem("decide_cache"), null);
+    if(cached && cached.db){
+      state.db = cached.db;
+      state.dbSource = "cache";
+      return true;
+    }
+    return false;
+  }
+
+  function saveCache(){
+    try{
+      localStorage.setItem("decide_cache", JSON.stringify({ db: state.db, ts: Date.now() }));
+    } catch {}
+  }
+
+  function loadDemo(){
+    state.db = { dining: DEMO_DINING, smartphones: [], earbuds: [], laptops: [] };
+    state.dbSource = "demo";
+  }
+
+  async function syncFromSupabase(){
+    if(!state.supabase){
+      toast("Supabase OFF • Using demo/cache");
+      return;
+    }
+    toast("Syncing...");
+    try{
+      // You can store dining/restaurants either in "restaurants" table or inside "products" with category='dining'
+      // Here: we pull dining from "restaurants" if exists, else fallback to products category.
+      const restaurantsTry = await state.supabase.from("restaurants").select("*");
+      if(!restaurantsTry.error && restaurantsTry.data && restaurantsTry.data.length){
+        state.db.dining = restaurantsTry.data.map(r => ({
+          id: r.id ?? r.slug ?? r.name,
+          name: r.name,
+          city: r.city ?? "Rajkot",
+          price: Number(r.price) || 0,
+          type: r.type ?? "Restaurant",
+          cuisines: r.cuisines ?? [],
+          specials: r.specials ?? [],
+          also: r.also ?? [],
+          hours: r.hours ?? "",
+          phone: r.phone ?? "",
+          maps: r.maps ?? "",
+          order: r.order ?? "",
+          tags: r.tags ?? []
+        }));
+        state.dbSource = "live";
+        saveCache();
+        toast("LIVE ✅");
+        renderLobby();
+        return;
+      }
+
+      // fallback: products where category='dining'
+      const { data, error } = await state.supabase.from(TABLE_PRODUCTS).select("*");
+      if(error) throw error;
+
+      // minimal mapping: if you only have products table, use it for devices; dining can be category='dining'
+      const dining = [];
+      (data || []).forEach(p => {
+        if(p.category === "dining"){
+          dining.push({
+            id: p.id ?? p.name,
+            name: p.name,
+            city: p.city ?? "Rajkot",
+            price: Number(p.price)||0,
+            type: p.type ?? "Restaurant",
+            cuisines: (p.cuisines ?? "").split(",").map(s=>s.trim()).filter(Boolean),
+            specials: (p.specials ?? "").split(",").map(s=>s.trim()).filter(Boolean),
+            also: (p.also ?? "").split(",").map(s=>s.trim()).filter(Boolean),
+            hours: p.hours ?? "",
+            phone: p.phone ?? "",
+            maps: p.maps ?? "",
+            order: p.order ?? "",
+            tags: (p.tags ?? "").split(",").map(s=>s.trim()).filter(Boolean)
+          });
+        }
+      });
+
+      if(dining.length) state.db.dining = dining;
+      state.dbSource = "live";
+      saveCache();
+      toast("LIVE ✅");
+      renderLobby();
+    } catch(e){
+      toast("Sync failed • Using cache/demo");
+    }
+  }
+
+  /* =========================
+     UI
+  ========================= */
+  function renderLobby(){
+    const app = $("app");
+    const badge = state.dbSource === "live" ? "LIVE" : (state.dbSource === "cache" ? "CACHE" : "DEMO");
+
+    app.innerHTML = `
+      <div class="header">
+        <div class="header-badge">
+          DECIDE OS v${APP_VERSION} <span class="dot"></span>
+          <span class="pill">DINING</span>
+          <span class="pill">ONDC LAYER</span>
+        </div>
+        <button class="btn-ghost" onclick="window.__decide.home()">HOME</button>
+      </div>
+
+      <div class="grid">
+        <div class="card" onclick="window.__decide.openDining()">
+          <div class="icon">🍽️</div>
+          <div class="title">DINING</div>
+          <div class="tag tag-live">${badge} DATA</div>
+        </div>
+
+        <div class="card disabled" onclick="window.__decide.nope()">
+          <div class="icon">📍</div>
+          <div class="title">NEAR ME</div>
+          <div class="tag tag-soon">NEXT</div>
+        </div>
+
+        <div class="card disabled" onclick="window.__decide.nope()">
+          <div class="icon">🛵</div>
+          <div class="title">DELIVERY</div>
+          <div class="tag tag-soon">NEXT</div>
+        </div>
+
+        <div class="card" onclick="window.__decide.settings()">
+          <div class="icon">⚙️</div>
+          <div class="title">SETTINGS</div>
+          <div class="tag tag-neutral">TOOLS</div>
+        </div>
+      </div>
+
+      <button class="bottom" onclick="window.__decide.sync()">🔄 SYNC</button>
+
+      <div class="small">
+        Session: ${escapeHtml(state.sessionId)} • Source: ${escapeHtml(state.dbSource.toUpperCase())} • Device: ${escapeHtml(state.deviceId)}
+      </div>
+    `;
+  }
+
+  function renderDiningList(){
+    const app = $("app");
+    state.domain = "dining";
+    track("open_module");
+
+    const list = state.db.dining || [];
+    if(!list.length){
+      app.innerHTML = `
+        <div class="screen">
+          <div class="h1">DINING</div>
+          <p class="p">No restaurants yet. Add one in Supabase or use demo.</p>
+          <button class="action" onclick="window.__decide.sync()">SYNC</button>
+          <button class="back" onclick="window.__decide.home()">← BACK</button>
+        </div>
+      `;
+      return;
+    }
+
+    app.innerHTML = `
+      <div class="screen">
+        <div class="h1">DINING</div>
+        <p class="p">Start with your relative’s restaurant. Add more in Rajkot after testing.</p>
+
+        ${list.map(r => `
+          <div class="card" style="align-items:flex-start;gap:6px" onclick="window.__decide.openRestaurant('${escapeHtml(r.id)}')">
+            <div style="display:flex;justify-content:space-between;width:100%;gap:10px">
+              <div>
+                <div class="title" style="text-align:left">${escapeHtml(r.name)}</div>
+                <div style="opacity:.7;font-weight:800">${escapeHtml(r.city)} • ₹${Number(r.price||0)}</div>
+              </div>
+              <div class="tag tag-live">OPEN</div>
+            </div>
+            <div style="opacity:.7">Type: ${escapeHtml(r.type || "Restaurant")}</div>
+            <div style="opacity:.7">Special: ${(r.specials||[]).slice(0,3).map(escapeHtml).join(", ")}</div>
+          </div>
+        `).join("")}
+
+        <button class="back" onclick="window.__decide.home()">← HOME</button>
+      </div>
+    `;
+  }
+
+  function renderRestaurant(id){
+    const app = $("app");
+    const r = (state.db.dining || []).find(x => String(x.id) === String(id));
+    if(!r){ toast("Not found"); renderDiningList(); return; }
+
+    state.selectedRestaurantId = id;
+    track("open_restaurant",{product:r.name});
+
+    const cuisines = (r.cuisines||[]).join(", ");
+    const specials = (r.specials||[]).join(", ");
+    const also = (r.also||[]).join(", ");
+
+    app.innerHTML = `
+      <div class="screen">
+        <div class="h1">${escapeHtml(r.name)}</div>
+        <p class="p">${escapeHtml(r.city)} • ₹${Number(r.price||0)} • ${escapeHtml(r.type||"Restaurant")}</p>
+
+        <div class="card" style="align-items:flex-start">
+          <div style="opacity:.7;font-weight:900">Cuisines</div>
+          <div style="font-weight:900">${escapeHtml(cuisines || "—")}</div>
+          <div style="margin-top:10px;opacity:.7;font-weight:900">Specials</div>
+          <div style="font-weight:900">${escapeHtml(specials || "—")}</div>
+          <div style="margin-top:10px;opacity:.7;font-weight:900">Also</div>
+          <div style="font-weight:900">${escapeHtml(also || "—")}</div>
+          <div style="margin-top:10px;opacity:.7;font-weight:900">Hours</div>
+          <div style="font-weight:900">${escapeHtml(r.hours || "—")}</div>
+        </div>
+
+        <button class="action" onclick="window.__decide.orderNow()">ORDER NOW</button>
+        <button class="back" onclick="window.__decide.openDining()">← BACK</button>
+      </div>
+    `;
+  }
+
+  function orderNow(){
+    const r = (state.db.dining || []).find(x => String(x.id) === String(state.selectedRestaurantId));
+    if(!r) return toast("Restaurant missing");
+
+    track("order_click",{product:r.name});
+
+    // Prefer WhatsApp order link if present
+    if(r.order){
+      window.open(r.order, "_blank");
+      return;
+    }
+    // fallback to phone
+    if(r.phone){
+      window.location.href = "tel:" + r.phone.replace(/\s+/g,"");
+      return;
+    }
+    toast("No order link yet");
+  }
+
+  function renderSettings(){
+    const app = $("app");
+    const last = localStorage.getItem("decide_cache_ts");
+    app.innerHTML = `
+      <div class="screen">
+        <div class="h1">SETTINGS</div>
+        <p class="p">Version ${APP_VERSION} • Source: ${escapeHtml(state.dbSource)}</p>
+        <button class="action" onclick="window.__decide.sync()">SYNC NOW</button>
+        <button class="back" onclick="window.__decide.nuke()">NUKE CACHE</button>
+        <button class="back" onclick="window.__decide.home()">← HOME</button>
+      </div>
+    `;
+  }
+
+  async function nukeCache(){
+    try{
+      // best-effort
+      localStorage.removeItem("decide_cache");
+      toast("Cache cleared ✅");
+      loadDemo();
+      renderLobby();
+    } catch {
+      toast("Nuke failed");
+    }
+  }
+
+  /* =========================
+     PUBLIC API (for onclick)
+  ========================= */
+  window.__decide = {
+    home: () => { state.domain=null; state.filters=[]; renderLobby(); },
+    sync: () => syncFromSupabase(),
+    openDining: () => renderDiningList(),
+    openRestaurant: (id) => renderRestaurant(id),
+    orderNow: () => orderNow(),
+    settings: () => renderSettings(),
+    nuke: () => nukeCache(),
+    nope: () => toast("Coming next"),
+  };
+
+  /* =========================
+     INIT (NO BLANK)
+  ========================= */
+  function init(){
+    initDeviceId();
+    initSupabase();
+
+    // Always render immediately
+    if(!loadCache()) loadDemo();
+    renderLobby();
+
+    // analytics flusher (safe)
+    state.flushTimer = setInterval(flushAnalytics, 8000);
+
+    // background sync
+    setTimeout(syncFromSupabase, 800);
+  }
+
+  document.addEventListener("DOMContentLoaded", init);
+})();
+</script>
+</body>
+</html>
