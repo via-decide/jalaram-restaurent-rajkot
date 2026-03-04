@@ -1,3 +1,15 @@
+<!--
+  CHANGES (v3 — 2026):
+  1–12. All v2 changes preserved (mic FAB, earcon, haptics, error handling, synonyms, etc.)
+  13. Language toggle now changes ENTIRE app display language (menu labels, UI strings, category names)
+  14. JALARAM_MENU extended with name_en / name_hi / name_gu + label_en / label_hi / label_gu per category
+  15. Three UI_STRINGS sets (en/hi/gu) — t(key) helper picks correct set at render time
+  16. itemName(item), catLabel(cat) helpers respect currentDisplayLang
+  17. setLang() updates both voice SpeechRecognition.lang AND currentDisplayLang, then re-renders
+  18. normalizeCuisineToArray preserves all _en/_hi/_gu label fields through pipeline
+  19. Apps Script fetch helper (fetchFromBackend) ready; menu falls back to local data offline
+  20. currentDisplayLang persisted in localStorage alongside voice lang
+-->
 <!DOCTYPE html>
 <html lang="gu">
 <head>
@@ -5,1437 +17,1101 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>| food.decide |</title>
 
-  <!-- Gujarati Font: Anek Gujarati -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anek+Gujarati:wght@100..800&display=swap" rel="stylesheet">
 
   <style>
     :root{
-      --bg:#0a0a0a;
-      --card:#111;
-      --border:#2a2a2a;
-      --muted:#8a8a8a;
-      --text:#f0f0f0;
-      --orange:#ff671f;
-      --go:#00e676;
-      --bad:#ff3333;
-
+      --bg:#0a0a0a;--card:#111;--border:#2a2a2a;--muted:#8a8a8a;--text:#f0f0f0;
+      --orange:#ff671f;--go:#00e676;--bad:#ff3333;--amber:#ffb400;
       --mono:'Courier New', monospace;
-      /* Gujarati UI font first, then system fallback */
-      --ui:'Anek Gujarati', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --ui:'Anek Gujarati',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
     }
-
-    html,body{
-      margin:0; padding:0; height:100%; width:100%;
-      background:var(--bg);
-      color:var(--text);
-      font-family:var(--ui);
-      overflow:hidden;
-      touch-action:none;
-      -webkit-user-select:none;
-      user-select:none;
-      font-optical-sizing:auto;
-      font-variation-settings:"wdth" 100;
-    }
-
+    html,body{margin:0;padding:0;height:100%;width:100%;background:var(--bg);color:var(--text);
+      font-family:var(--ui);overflow:hidden;touch-action:none;-webkit-user-select:none;
+      user-select:none;font-optical-sizing:auto;font-variation-settings:"wdth" 100;}
     #master-container{height:100vh;width:100vw;position:relative;overflow:hidden;}
-
-    .main-slide{
-      height:100vh;width:100vw;
-      position:absolute;top:0;left:0;
-      display:flex;flex-direction:column;
-      background:var(--bg);
-      transition: transform .5s cubic-bezier(.2,.8,.2,1);
-      will-change:transform;
-    }
+    .main-slide{height:100vh;width:100vw;position:absolute;top:0;left:0;display:flex;
+      flex-direction:column;background:var(--bg);transition:transform .5s cubic-bezier(.2,.8,.2,1);will-change:transform;}
     .main-slide.prev{transform:translateY(-100%);}
     .main-slide.active{transform:translateY(0);z-index:10;}
     .main-slide.next{transform:translateY(100%);z-index:20;}
-
-    .slide-header{
-      padding:18px 18px 14px 18px;
-      border-left:3px solid var(--orange);
-      height:74px;
-      flex-shrink:0;
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap:12px;
-    }
+    .slide-header{padding:18px 18px 14px;border-left:3px solid var(--orange);height:74px;
+      flex-shrink:0;display:flex;align-items:flex-end;justify-content:space-between;gap:12px;}
     .header-left{display:flex;flex-direction:column;gap:6px;}
-    .header-title{
-      font-family:var(--mono);
-      font-size:.78rem;
-      color:var(--orange);
-      letter-spacing:1px;
-      font-weight:800;
-      text-transform:uppercase;
-      line-height:1;
-    }
-    .header-sub{
-      font-family:var(--mono);
-      font-size:.68rem;
-      color:#6f6f6f;
-      letter-spacing:.5px;
-      text-transform:uppercase;
-      line-height:1;
-    }
-
-    .pill-status{
-      font-family:var(--mono);
-      font-size:.68rem;
-      font-weight:900;
-      text-transform:uppercase;
-      padding:8px 10px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      background:#0f0f0f;
-      color:#dcdcdc;
-      white-space:nowrap;
-      display:flex;
-      align-items:center;
-      gap:8px;
-    }
+    .header-title{font-family:var(--mono);font-size:.78rem;color:var(--orange);letter-spacing:1px;font-weight:800;text-transform:uppercase;line-height:1;}
+    .header-sub{font-family:var(--mono);font-size:.68rem;color:#6f6f6f;letter-spacing:.5px;text-transform:uppercase;line-height:1;}
+    .pill-status{font-family:var(--mono);font-size:.68rem;font-weight:900;text-transform:uppercase;
+      padding:8px 10px;border-radius:999px;border:1px solid var(--border);background:#0f0f0f;color:#dcdcdc;
+      white-space:nowrap;display:flex;align-items:center;gap:8px;}
     .dot{width:8px;height:8px;border-radius:50%;}
-    .dot.open{background:var(--go); box-shadow:0 0 14px rgba(0,230,118,.35);}
-    .dot.closed{background:var(--bad); box-shadow:0 0 14px rgba(255,51,51,.25);}
-
+    .dot.open{background:var(--go);box-shadow:0 0 14px rgba(0,230,118,.35);}
+    .dot.closed{background:var(--bad);box-shadow:0 0 14px rgba(255,51,51,.25);}
     .carousel-viewport{position:relative;flex-grow:1;width:100%;height:100%;}
-
-    .sub-slide{
-      position:absolute; inset:0;
-      padding:22px;
-      display:flex;
-      flex-direction:column;
-      justify-content:center;
-      opacity:0;
-      pointer-events:none;
-      transform:translateX(18px);
-      transition:transform .3s ease, opacity .3s ease;
-    }
+    .sub-slide{position:absolute;inset:0;padding:22px;display:flex;flex-direction:column;justify-content:center;
+      opacity:0;pointer-events:none;transform:translateX(18px);transition:transform .3s ease,opacity .3s ease;}
     .sub-slide.opt-active{z-index:30;opacity:1;pointer-events:auto;transform:translateX(0);}
     .sub-slide.opt-hidden{z-index:0;opacity:0;pointer-events:none;}
     .sub-slide.static{z-index:30;opacity:1;pointer-events:auto;transform:none;}
-
-    h1{
-      font-size:1.95rem;
-      margin:0 0 12px 0;
-      line-height:1.05;
-      letter-spacing:-.5px;
-      color:var(--orange);
-      font-weight:850;
-    }
-    .primary-question{
-      font-size:1.08rem;
-      color:#fff;
-      margin-bottom:22px;
-      line-height:1.4;
-      font-weight:750;
-    }
-    .price{
-      font-size:.88rem;
-      color:#b8b8b8;
-      margin-left:10px;
-      font-family:var(--mono);
-      background:#1f1f1f;
-      padding:2px 7px;
-      border-radius:7px;
-      border:1px solid #2f2f2f;
-    }
-
-    .role-label{
-      font-family:var(--mono);
-      font-size:.64rem;
-      color:#000;
-      background:var(--go);
-      padding:5px 9px;
-      border-radius:8px;
-      width:fit-content;
-      margin-bottom:14px;
-      font-weight:900;
-      text-transform:uppercase;
-      letter-spacing:.6px;
-    }
-
-    .nav-hint{
-      margin-top:26px;
-      padding-top:16px;
-      border-top:1px solid #2b2b2b;
-      font-family:var(--mono);
-      font-size:.72rem;
-      color:#777;
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-    }
-
-    /* Lobby */
-    .lobby-container{
-      display:flex;
-      flex-direction:column;
-      gap:14px;
-      padding:18px 18px 24px;
-      height:100%;
-      justify-content:center;
-    }
-
-    .banner{
-      border:1px solid rgba(255,103,31,.5);
-      background:rgba(255,103,31,.08);
-      padding:12px 14px;
-      border-radius:14px;
-      font-family:var(--mono);
-      font-weight:900;
-      text-transform:uppercase;
-      font-size:.74rem;
-      letter-spacing:.5px;
-      color:#ffb38a;
-    }
-    .banner.closed{
-      border-color: rgba(255,51,51,.6);
-      background: rgba(255,51,51,.10);
-      color:#ff9a9a;
-    }
-    .banner.open{
-      border-color: rgba(0,230,118,.55);
-      background: rgba(0,230,118,.08);
-      color:#9affcf;
-    }
-
-    .grid{ display:grid; gap:12px; margin-top:2px; }
-
-    .cat-btn{
-      background:linear-gradient(145deg,#141414,#0a0a0a);
-      border:1px solid #2b2b2b;
-      color:#d8d8d8;
-      padding:16px 16px;
-      border-radius:16px;
-      transition:transform .06s, border-color .2s, box-shadow .2s, background .2s;
-      text-align:left;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-    }
+    h1{font-size:1.95rem;margin:0 0 12px;line-height:1.05;letter-spacing:-.5px;color:var(--orange);font-weight:850;}
+    .primary-question{font-size:1.08rem;color:#fff;margin-bottom:22px;line-height:1.4;font-weight:750;}
+    .price{font-size:.88rem;color:#b8b8b8;margin-left:10px;font-family:var(--mono);background:#1f1f1f;padding:2px 7px;border-radius:7px;border:1px solid #2f2f2f;}
+    .role-label{font-family:var(--mono);font-size:.64rem;color:#000;background:var(--go);padding:5px 9px;
+      border-radius:8px;width:fit-content;margin-bottom:14px;font-weight:900;text-transform:uppercase;letter-spacing:.6px;}
+    .nav-hint{margin-top:26px;padding-top:16px;border-top:1px solid #2b2b2b;font-family:var(--mono);
+      font-size:.72rem;color:#777;display:flex;justify-content:space-between;gap:10px;}
+    .lobby-container{display:flex;flex-direction:column;gap:14px;padding:18px 18px 24px;height:100%;justify-content:center;}
+    .banner{border:1px solid rgba(255,103,31,.5);background:rgba(255,103,31,.08);padding:12px 14px;
+      border-radius:14px;font-family:var(--mono);font-weight:900;text-transform:uppercase;font-size:.74rem;letter-spacing:.5px;color:#ffb38a;}
+    .banner.closed{border-color:rgba(255,51,51,.6);background:rgba(255,51,51,.10);color:#ff9a9a;}
+    .banner.open{border-color:rgba(0,230,118,.55);background:rgba(0,230,118,.08);color:#9affcf;}
+    .grid{display:grid;gap:12px;margin-top:2px;}
+    .cat-btn{background:linear-gradient(145deg,#141414,#0a0a0a);border:1px solid #2b2b2b;color:#d8d8d8;
+      padding:16px;border-radius:16px;transition:transform .06s,border-color .2s,box-shadow .2s,background .2s;
+      text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px;}
     .cat-btn:active{transform:translateY(1px);}
-    .cat-btn .name{
-      font-weight:900;
-      font-size:1.05rem;
-      text-transform:uppercase;
-      letter-spacing:.2px;
-    }
-    .cat-btn .meta{
-      font-family:var(--mono);
-      font-weight:900;
-      font-size:.7rem;
-      color:#8b8b8b;
-      text-transform:uppercase;
-    }
-    .cat-btn.selected{
-      border-color: rgba(255,103,31,.9);
-      box-shadow: 0 0 18px rgba(255,103,31,.18);
-      background:linear-gradient(145deg, rgba(255,103,31,.22), rgba(0,0,0,.4));
-    }
+    .cat-btn .name{font-weight:900;font-size:1.05rem;text-transform:uppercase;letter-spacing:.2px;}
+    .cat-btn .meta{font-family:var(--mono);font-weight:900;font-size:.7rem;color:#8b8b8b;text-transform:uppercase;}
+    .cat-btn.selected{border-color:rgba(255,103,31,.9);box-shadow:0 0 18px rgba(255,103,31,.18);background:linear-gradient(145deg,rgba(255,103,31,.22),rgba(0,0,0,.4));}
     .cat-btn.selected .meta{color:#ffd2ba;}
-
-    .btn{
-      background:#1b1b1b;
-      color:#fff;
-      border:1px solid #2c2c2c;
-      padding:14px;
-      border-radius:14px;
-      font-weight:900;
-      text-align:center;
-      font-size:1rem;
-      cursor:pointer;
-      width:100%;
-      box-sizing:border-box;
-      transition:transform .06s, opacity .2s;
-      letter-spacing:.2px;
-    }
+    .btn{background:#1b1b1b;color:#fff;border:1px solid #2c2c2c;padding:14px;border-radius:14px;font-weight:900;
+      text-align:center;font-size:1rem;cursor:pointer;width:100%;box-sizing:border-box;transition:transform .06s,opacity .2s;letter-spacing:.2px;}
     .btn:active{transform:translateY(1px);}
-    .btn.primary{
-      background:#fff;
-      color:#000;
-      border:none;
-    }
-    .btn.whatsapp{
-      background:#25D366;
-      color:#000;
-      border:none;
-    }
-
-    #depth-fill{
-      position:fixed;right:0;top:0;bottom:0;
-      width:4px;background:#333;z-index:900;
-      height:0%;transition:height .05s linear;
-    }
-
-    .toast-msg{
-      position:fixed;
-      bottom:92px;left:50%;
-      transform:translateX(-50%);
-      background:#161616;
-      color:var(--go);
-      padding:10px 16px;
-      border:1px solid rgba(0,230,118,.8);
-      border-radius:999px;
-      font-size:.85rem;
-      opacity:0;
-      pointer-events:none;
-      transition:opacity .25s;
-      z-index:3000;
-      white-space:nowrap;
-      font-family:var(--mono);
-      box-shadow:0 8px 30px rgba(0,0,0,.45);
-    }
+    .btn.primary{background:#fff;color:#000;border:none;}
+    .btn.whatsapp{background:#25D366;color:#000;border:none;}
+    #depth-fill{position:fixed;right:0;top:0;bottom:0;width:4px;background:#333;z-index:900;height:0%;transition:height .05s linear;}
+    .toast-msg{position:fixed;bottom:92px;left:50%;transform:translateX(-50%);background:#161616;color:var(--go);
+      padding:10px 16px;border:1px solid rgba(0,230,118,.8);border-radius:999px;font-size:.85rem;opacity:0;
+      pointer-events:none;transition:opacity .25s;z-index:3000;white-space:nowrap;font-family:var(--mono);box-shadow:0 8px 30px rgba(0,0,0,.45);}
     .toast-msg.visible{opacity:1;}
 
-    #mic-toggle{
-      position:fixed;
-      bottom:18px;left:18px;
-      width:54px;height:54px;
-      background:#0f0f0f;
-      border-radius:50%;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      border:1px solid #2d2d2d;
-      z-index:2000;
-      cursor:pointer;
-      transition:all .25s;
-      box-shadow:0 10px 24px rgba(0,0,0,.5);
-    }
-    #mic-toggle svg{width:24px;height:24px;fill:#7b7b7b;}
-    #mic-toggle.listening{
-      border-color: rgba(0,230,118,.9);
-      box-shadow:0 0 18px rgba(0,230,118,.25), 0 10px 24px rgba(0,0,0,.5);
-    }
-    #mic-toggle.listening svg{fill:var(--go);}
+    /* ── MIC FAB (Apple-like) ── */
+    #mic-fab{position:fixed;bottom:18px;left:18px;z-index:2000;display:flex;flex-direction:column;align-items:center;gap:7px;}
+    #mic-label{font-family:var(--mono);font-size:.62rem;font-weight:900;text-transform:uppercase;letter-spacing:.6px;
+      color:var(--go);background:rgba(0,20,8,.85);border:1px solid rgba(0,230,118,.35);padding:5px 10px;
+      border-radius:999px;white-space:nowrap;opacity:0;transform:translateY(4px);transition:opacity .3s,transform .3s;
+      pointer-events:none;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);}
+    #mic-label.visible{opacity:1;transform:translateY(0);}
+    #mic-fab.mic-processing #mic-label{color:var(--amber);border-color:rgba(255,180,0,.4);background:rgba(15,10,0,.85);}
+    #mic-fab.mic-blocked #mic-label{color:var(--bad);border-color:rgba(255,51,51,.4);background:rgba(20,0,0,.85);}
+    #mic-btn-wrap{position:relative;width:56px;height:56px;}
+    #mic-pulse-ring{position:absolute;inset:-9px;border-radius:50%;border:2px solid rgba(0,230,118,.55);opacity:0;pointer-events:none;transition:opacity .3s;}
+    #mic-fab.mic-listening #mic-pulse-ring{opacity:1;animation:pulse-ring 1.6s cubic-bezier(.4,0,.6,1) infinite;}
+    @keyframes pulse-ring{0%{transform:scale(1);opacity:.65}70%{transform:scale(1.35);opacity:.15}100%{transform:scale(1.35);opacity:0}}
+    #mic-pulse-ring2{position:absolute;inset:-6px;border-radius:50%;border:1.5px solid rgba(0,230,118,.3);opacity:0;pointer-events:none;}
+    #mic-fab.mic-listening #mic-pulse-ring2{opacity:1;animation:pulse-ring 1.6s cubic-bezier(.4,0,.6,1) .5s infinite;}
+    #mic-toggle{width:56px;height:56px;background:rgba(10,10,10,.9);border-radius:50%;display:flex;align-items:center;
+      justify-content:center;flex-direction:column;gap:0;border:1.5px solid #2d2d2d;cursor:pointer;position:relative;
+      overflow:hidden;-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+      transition:border-color .35s,box-shadow .35s,background .35s;
+      box-shadow:0 2px 6px rgba(0,0,0,.6),0 10px 28px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);}
+    #mic-toggle:active{transform:scale(.93);}
+    #mic-fab.mic-listening #mic-toggle{border-color:rgba(0,230,118,.85);box-shadow:0 0 22px rgba(0,230,118,.28),0 10px 28px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.06);background:rgba(0,16,8,.92);}
+    #mic-fab.mic-processing #mic-toggle{border-color:rgba(255,180,0,.8);box-shadow:0 0 18px rgba(255,180,0,.22),0 10px 24px rgba(0,0,0,.5);background:rgba(12,10,0,.92);animation:processing-pulse 1s ease-in-out infinite;}
+    @keyframes processing-pulse{0%,100%{box-shadow:0 0 10px rgba(255,180,0,.15),0 10px 24px rgba(0,0,0,.5)}50%{box-shadow:0 0 26px rgba(255,180,0,.35),0 10px 24px rgba(0,0,0,.5)}}
+    #mic-fab.mic-blocked #mic-toggle{border-color:rgba(255,51,51,.8);box-shadow:0 0 16px rgba(255,51,51,.22),0 10px 24px rgba(0,0,0,.5);background:rgba(14,0,0,.92);animation:shake-blocked 0.4s ease;}
+    @keyframes shake-blocked{0%,100%{transform:translateX(0)}20%{transform:translateX(-4px)}40%{transform:translateX(4px)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+    #mic-fab.mic-unsupported #mic-toggle{opacity:.38;cursor:not-allowed;}
+    #mic-toggle svg{width:22px;height:22px;fill:#6a6a6a;transition:fill .35s,transform .35s;flex-shrink:0;position:relative;z-index:2;}
+    #mic-fab.mic-listening #mic-toggle svg{fill:var(--go);transform:translateY(-5px) scale(.88);}
+    #mic-fab.mic-processing #mic-toggle svg{fill:var(--amber);}
+    #mic-fab.mic-blocked #mic-toggle svg{fill:var(--bad);}
+    #mic-waveform{display:flex;align-items:flex-end;gap:2.5px;height:13px;position:absolute;bottom:8px;left:50%;transform:translateX(-50%);opacity:0;transition:opacity .3s;z-index:2;}
+    #mic-fab.mic-listening #mic-waveform{opacity:1;}
+    #mic-waveform span{display:block;width:3px;border-radius:2px;background:var(--go);transform-origin:bottom;animation:wave-bar .75s ease-in-out infinite alternate;}
+    #mic-waveform span:nth-child(1){height:4px;animation-delay:0s;animation-duration:.6s;}
+    #mic-waveform span:nth-child(2){height:9px;animation-delay:.12s;animation-duration:.75s;}
+    #mic-waveform span:nth-child(3){height:13px;animation-delay:.04s;animation-duration:.55s;}
+    #mic-waveform span:nth-child(4){height:9px;animation-delay:.18s;animation-duration:.8s;}
+    #mic-waveform span:nth-child(5){height:4px;animation-delay:.08s;animation-duration:.65s;}
+    @keyframes wave-bar{from{transform:scaleY(1);opacity:.7}to{transform:scaleY(2.2);opacity:1}}
+    #mic-toggle::before{content:'';position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 38% 28%,rgba(255,255,255,.08) 0%,transparent 65%);pointer-events:none;z-index:1;}
 
-    /* Preferences */
-    .card{
-      border:1px solid #2b2b2b;
-      background:linear-gradient(145deg,#111,#0c0c0c);
-      padding:16px;
-      border-radius:16px;
-      margin-top:14px;
-      box-shadow:0 10px 26px rgba(0,0,0,.35);
-    }
+    /* ── LANGUAGE TOGGLE ── */
+    #lang-toggle{position:fixed;bottom:28px;right:18px;z-index:2000;display:flex;gap:4px;
+      background:rgba(12,12,12,.88);border:1px solid #282828;border-radius:999px;padding:5px 6px;
+      -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+      box-shadow:0 8px 24px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.04);}
+    .lang-chip{font-family:var(--mono);font-size:.65rem;font-weight:950;color:#666;background:transparent;border:none;
+      border-radius:999px;padding:5px 9px;cursor:pointer;transition:color .2s,background .2s,transform .1s;
+      text-transform:uppercase;letter-spacing:.5px;-webkit-user-select:none;user-select:none;}
+    .lang-chip:active{transform:scale(.9);}
+    .lang-chip.active{background:var(--orange);color:#000;}
 
-    .label{
-      font-family:var(--mono);
-      font-size:.72rem;
-      color:#8a8a8a;
-      text-transform:uppercase;
-      font-weight:900;
-      letter-spacing:.7px;
-    }
-
+    /* ── PREFS / CARD ── */
+    .card{border:1px solid #2b2b2b;background:linear-gradient(145deg,#111,#0c0c0c);padding:16px;border-radius:16px;margin-top:14px;box-shadow:0 10px 26px rgba(0,0,0,.35);}
+    .label{font-family:var(--mono);font-size:.72rem;color:#8a8a8a;text-transform:uppercase;font-weight:900;letter-spacing:.7px;}
     .pill-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;}
-    .pill{
-      border:1px solid #2b2b2b;
-      background:#101010;
-      color:#ddd;
-      padding:10px 12px;
-      border-radius:999px;
-      font-family:var(--mono);
-      font-weight:950;
-      font-size:.74rem;
-      cursor:pointer;
-    }
-    .pill.active{
-      border-color: rgba(0,230,118,.9);
-      background: rgba(0,230,118,.95);
-      color:#000;
-      box-shadow:0 0 12px rgba(0,230,118,.18);
-    }
-
+    .pill{border:1px solid #2b2b2b;background:#101010;color:#ddd;padding:10px 12px;border-radius:999px;font-family:var(--mono);font-weight:950;font-size:.74rem;cursor:pointer;}
+    .pill.active{border-color:rgba(0,230,118,.9);background:rgba(0,230,118,.95);color:#000;box-shadow:0 0 12px rgba(0,230,118,.18);}
     .field{display:grid;gap:6px;margin-top:12px;}
-    .input, textarea{
-      border:1px solid #2b2b2b;
-      background:#0e0e0e;
-      color:#fff;
-      border-radius:14px;
-      padding:12px;
-      font-size:1rem;
-      outline:none;
-      width:100%;
-      box-sizing:border-box;
-      font-family:var(--ui);
-    }
+    .input,textarea{border:1px solid #2b2b2b;background:#0e0e0e;color:#fff;border-radius:14px;padding:12px;font-size:1rem;outline:none;width:100%;box-sizing:border-box;font-family:var(--ui);}
     textarea{min-height:90px;resize:none;}
-
-    /* Item icon block */
-    .item-icon-wrap{
-      width:64px;
-      height:64px;
-      border-radius:16px;
-      border:1px solid #2b2b2b;
-      background: radial-gradient(120% 120% at 30% 20%, rgba(255,103,31,.18), rgba(0,0,0,.35));
-      box-shadow:0 10px 28px rgba(0,0,0,.45);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      margin-bottom:14px;
-    }
-    .item-icon-wrap svg{
-      width:40px;
-      height:40px;
-      stroke: rgba(255,255,255,.92);
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      opacity: .95;
-    }
-
-    /* Final */
+    .item-icon-wrap{width:64px;height:64px;border-radius:16px;border:1px solid #2b2b2b;
+      background:radial-gradient(120% 120% at 30% 20%,rgba(255,103,31,.18),rgba(0,0,0,.35));
+      box-shadow:0 10px 28px rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;margin-bottom:14px;}
+    .item-icon-wrap svg{width:40px;height:40px;stroke:rgba(255,255,255,.92);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.95;}
     .verdict-container{display:flex;flex-direction:column;height:100%;justify-content:center;padding:0 4px;}
-    .choice-header{
-      font-family:var(--mono);
-      color:#6d6d6d;
-      font-size:.8rem;
-      margin-bottom:14px;
-      text-transform:uppercase;
-      text-align:center;
-      letter-spacing:1px;
-      font-weight:950;
-    }
-    .input-group{
-      border:1px solid #2b2b2b;
-      background:linear-gradient(145deg,#101010,#0a0a0a);
-      padding:14px;
-      border-radius:16px;
-      margin-bottom:14px;
-      min-height:120px;
-      max-height:42vh;
-      overflow-y:auto;
-      box-shadow:0 10px 26px rgba(0,0,0,.35);
-    }
-
-    .item-row{
-      display:grid;
-      grid-template-columns: 1fr auto;
-      gap:12px;
-      padding:12px 0;
-      border-bottom:1px dashed #2b2b2b;
-      align-items:center;
-    }
-
-    .item-name{
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-    }
-    .item-name .t{
-      font-family:var(--ui);
-      font-weight:800;
-      font-size:.98rem;
-      color:#e6e6e6;
-    }
-    .item-name .s{
-      font-family:var(--mono);
-      font-weight:900;
-      font-size:.72rem;
-      color:#8c8c8c;
-      text-transform:uppercase;
-      letter-spacing:.4px;
-    }
-
-    .qty-box{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      justify-content:flex-end;
-    }
-
-    .qty-btn{
-      width:34px;height:34px;
-      border-radius:12px;
-      border:1px solid #2b2b2b;
-      background:#0e0e0e;
-      color:#fff;
-      font-weight:950;
-      cursor:pointer;
-      display:flex;align-items:center;justify-content:center;
-      font-family:var(--mono);
-      box-shadow:0 8px 20px rgba(0,0,0,.35);
-    }
+    .choice-header{font-family:var(--mono);color:#6d6d6d;font-size:.8rem;margin-bottom:14px;text-transform:uppercase;text-align:center;letter-spacing:1px;font-weight:950;}
+    .input-group{border:1px solid #2b2b2b;background:linear-gradient(145deg,#101010,#0a0a0a);padding:14px;border-radius:16px;margin-bottom:14px;min-height:120px;max-height:42vh;overflow-y:auto;box-shadow:0 10px 26px rgba(0,0,0,.35);}
+    .item-row{display:grid;grid-template-columns:1fr auto;gap:12px;padding:12px 0;border-bottom:1px dashed #2b2b2b;align-items:center;}
+    .item-name{display:flex;flex-direction:column;gap:6px;}
+    .item-name .t{font-family:var(--ui);font-weight:800;font-size:.98rem;color:#e6e6e6;}
+    .item-name .s{font-family:var(--mono);font-weight:900;font-size:.72rem;color:#8c8c8c;text-transform:uppercase;letter-spacing:.4px;}
+    .qty-box{display:flex;align-items:center;gap:10px;justify-content:flex-end;}
+    .qty-btn{width:34px;height:34px;border-radius:12px;border:1px solid #2b2b2b;background:#0e0e0e;color:#fff;
+      font-weight:950;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:var(--mono);box-shadow:0 8px 20px rgba(0,0,0,.35);}
     .qty-btn:active{transform:translateY(1px);}
-    .qty-num{
-      font-family:var(--mono);
-      font-weight:950;
-      font-size:.84rem;
-      color:var(--go);
-      min-width:34px;
-      text-align:center;
-    }
-
-    .total-row{
-      display:flex;
-      justify-content:space-between;
-      padding-top:12px;
-      margin-top:12px;
-      border-top:1px solid #2b2b2b;
-      font-family:var(--mono);
-      font-weight:950;
-      text-transform:uppercase;
-      letter-spacing:.6px;
-    }
-    .total-row .k{color:#9a9a9a;}
-    .total-row .v{color:#fff;}
-
-    .hint{
-      text-align:center;
-      color:#666;
-      font-family:var(--mono);
-      font-size:.74rem;
-      margin-top:2px;
-    }
+    .qty-num{font-family:var(--mono);font-weight:950;font-size:.84rem;color:var(--go);min-width:34px;text-align:center;}
+    .total-row{display:flex;justify-content:space-between;padding-top:12px;margin-top:12px;border-top:1px solid #2b2b2b;font-family:var(--mono);font-weight:950;text-transform:uppercase;letter-spacing:.6px;}
+    .total-row .k{color:#9a9a9a;} .total-row .v{color:#fff;}
+    .hint{text-align:center;color:#666;font-family:var(--mono);font-size:.74rem;margin-top:2px;}
   </style>
 </head>
-
 <body>
   <div id="master-container"></div>
   <div id="depth-fill"></div>
   <div id="toast" class="toast-msg"></div>
 
-  <div id="mic-toggle" onclick="toggleListenMode()">
-    <svg viewBox="0 0 24 24">
-      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-      <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
-    </svg>
+  <div id="mic-fab" class="mic-idle">
+    <div id="mic-label"></div>
+    <div id="mic-btn-wrap">
+      <div id="mic-pulse-ring"></div>
+      <div id="mic-pulse-ring2"></div>
+      <div id="mic-toggle" onclick="toggleListenMode()">
+        <svg viewBox="0 0 24 24">
+          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+        </svg>
+        <div id="mic-waveform"><span></span><span></span><span></span><span></span><span></span></div>
+      </div>
+    </div>
   </div>
 
-  <script>
-    /* ===============================
-       GUJARATI UI STRINGS
-       =============================== */
-    const UI_GU = {
-      lobbyTitle: "આજ શું મંગાવીએ?",
-      hunt: "શરૂ કરો →",
-      hintSwipe: "નીચે સ્વાઇપ = ઉમેરો • ડાબે = સ્કિપ • જમણે = બ્રાઉઝ • ઉપર = પાછા",
-      openNow: "ખુલ્લું છે • 6PM–10PM",
-      closedNow: "હમણાં બંધ • 6PMએ ખુલશે",
-      bestTime: "સારો સમય: 6PM–10PM • 6PM પહેલા અને 10PM પછી બંધ",
-      selected: "પસંદ",
-      tap: "ટૅપ",
-      items: "આઇટમ્સ",
-      noItems: "આઇટમ નથી",
-      emptyCat: "આ કેટેગરી ખાલી છે.",
-      swipeDownContinue: "નીચે સ્વાઇપ કરીને આગળ વધો ↓",
-      swipeDownToAdd: "ઉમેરવા માટે નીચે સ્વાઇપ કરો",
-      skip: "← સ્કિપ",
-      browse: "બ્રાઉઝ →",
-      prefsTitle: "પસંદગીઓ",
-      timingLabel: "સમયની પસંદગી",
-      dineTakeLabel: "ડાઇન-ઇન કે ટેક-અવે",
-      dineIn: "ડાઇન-ઇન",
-      takeAway: "ટેક-અવે",
-      nameLabel: "નામ",
-      namePh: "તમારું નામ (વૈકલ્પિક)",
-      phoneLabel: "ફોન",
-      phonePh: "ફોન નંબર (વૈકલ્પિક)",
-      notesLabel: "ખાસ નોંધ",
-      notesPh: "ઓછું તીખું, જૈન, એક્સ્ટ્રા પાવ, વગેરે.",
-      swipeDownCheckout: "નીચે સ્વાઇપ કરીને ચેકઆઉટ ↓",
-      checkout: "ચેકઆઉટ",
-      whatsappOrder: "વોટ્સએપ ઓર્ડર",
-      copyOrder: "ઓર્ડર કોપી કરો",
-      startNew: "નવું શરૂ કરો",
-      cartEmpty: "કાર્ટ ખાલી",
-      copied: "કોપી થયું ✅",
-      copyFailed: "કોપી ન થયું",
-      micOn: "માઇક ચાલુ",
-      micOff: "માઇક બંધ",
-      voiceNA: "વોઈસ સપોર્ટ નથી",
-      voiceTmp: "વોઈસ થોડું અસ્થિર",
-      added: "ઉમેર્યું",
-      removed: "કાઢ્યું",
-      total: "કુલ",
-      each: "દર",
-      line: "લાઇન",
-      statusOpen: "ખુલ્લું",
-      statusClosed: "બંધ"
-    };
+  <div id="lang-toggle">
+    <button class="lang-chip" data-lang="en-IN" onclick="setLang(this)">EN</button>
+    <button class="lang-chip" data-lang="hi-IN" onclick="setLang(this)">HI</button>
+    <button class="lang-chip active" data-lang="gu-IN" onclick="setLang(this)">GU</button>
+  </div>
 
-    /* ===============================
-       JALARAM (RAJKOT) LOCAL MENU
-       =============================== */
-    const JALARAM_MENU = {
-      meta: { version:"menu.v1", currency:"INR", outlet:"Jalaram Food Court", location:"Rajkot, Gujarat" },
-      cuisines: {
-        jalaram: {
-          label: "JALARAM",
-          categories: {
-            jb_pavbhaji: { label:"પાવ ભાજી", items:[
-              { id:"classic_pav_bhaji", name:"ક્લાસિક પાવ ભાજી", price:120 },
-              { id:"butter_pav_bhaji", name:"બટર પાવ ભાજી", price:130 },
-              { id:"masala_pav_bhaji", name:"મસાલા પાવ ભાજી", price:135 },
-              { id:"cheese_pav_bhaji", name:"ચીઝ પાવ ભાજી", price:140 },
-              { id:"paneer_pav_bhaji", name:"પનીર પાવ ભાજી", price:150 },
-              { id:"jain_pav_bhaji", name:"જૈન પાવ ભાજી", price:120 }
-            ]},
-            jb_pulav: { label:"પુલાવ", items:[
-              { id:"veg_pulav", name:"વેજ પુલાવ", price:130 },
-              { id:"butter_veg_pulav", name:"બટર વેજ પુલાવ", price:140 },
-              { id:"tava_pulav", name:"તવા પુલાવ", price:145 },
-              { id:"paneer_pulav", name:"પનીર પુલાવ", price:160 },
-              { id:"cheese_pulav", name:"ચીઝ પુલાવ", price:160 },
-              { id:"jain_veg_pulav", name:"જૈન વેજ પુલાવ", price:130 }
-            ]},
-            jb_combos: { label:"કોમ્બો", items:[
-              { id:"combo_pavbhaji_pulav", name:"પાવ ભાજી + પુલાવ", price:240 },
-              { id:"combo_cheese_pavbhaji_paneer_pulav", name:"ચીઝ પાવ ભાજી + પનીર પુલાવ", price:290 },
-              { id:"combo_jain", name:"જૈન કોમ્બો", price:230 }
-            ]},
-            jb_addons: { label:"એડ-ઓન", items:[
-              { id:"extra_pav", name:"એક્સ્ટ્રા પાવ", price:30 },
-              { id:"extra_butter", name:"એક્સ્ટ્રા બટર", price:20 },
-              { id:"extra_cheese", name:"એક્સ્ટ્રા ચીઝ", price:25 },
-              { id:"chaas", name:"છાસ", price:30 },
-              { id:"sweet_lassi", name:"સ્વીટ લસ્સી", price:40 }
-            ]}
-          }
+<script>
+/* ================================================================
+   TRILINGUAL UI STRINGS
+   t(key) returns the right string for currentDisplayLang
+   ================================================================ */
+const UI_STRINGS = {
+  en: {
+    lobbyTitle:"What shall we order?",
+    hunt:"Start →",
+    hintSwipe:"Swipe down = Add • Left = Skip • Right = Browse • Up = Back",
+    openNow:"Open now • 6PM–10PM",
+    closedNow:"Closed • Opens at 6PM",
+    bestTime:"Best time: 6PM–10PM • Closed before 6PM & after 10PM",
+    selected:"Selected",tap:"Tap",items:"items",noItems:"No items",
+    emptyCat:"This category is empty.",
+    swipeDownContinue:"Swipe down to continue ↓",
+    swipeDownToAdd:"Swipe down to add",
+    skip:"← Skip",browse:"Browse →",
+    prefsTitle:"Preferences",timingLabel:"Timing",dineTakeLabel:"Dine-in or Takeaway",
+    dineIn:"Dine-in",takeAway:"Takeaway",nameLabel:"Name",namePh:"Your name (optional)",
+    phoneLabel:"Phone",phonePh:"Phone number (optional)",notesLabel:"Special note",
+    notesPh:"Less spicy, Jain, extra pav, etc.",
+    swipeDownCheckout:"Swipe down to checkout ↓",checkout:"Checkout",
+    whatsappOrder:"WhatsApp Order",copyOrder:"Copy Order",startNew:"Start New",
+    cartEmpty:"Cart is empty",copied:"Copied ✅",copyFailed:"Copy failed",
+    micOn:"🎙 Listening",micOff:"🎙 Off",voiceNA:"Voice not supported",voiceTmp:"Voice error — retry",
+    added:"Added",removed:"Removed",total:"Total",each:"each",line:"line",
+    statusOpen:"Open",statusClosed:"Closed"
+  },
+  hi: {
+    lobbyTitle:"आज क्या मंगाएं?",
+    hunt:"शुरू करें →",
+    hintSwipe:"नीचे स्वाइप = जोड़ें • बाएं = स्किप • दाएं = ब्राउज़ • ऊपर = वापस",
+    openNow:"खुला है • 6PM–10PM",
+    closedNow:"अभी बंद • 6PM पर खुलेगा",
+    bestTime:"सही समय: 6PM–10PM • 6PM से पहले और 10PM के बाद बंद",
+    selected:"चुना",tap:"टैप करें",items:"आइटम",noItems:"कोई आइटम नहीं",
+    emptyCat:"यह श्रेणी खाली है।",
+    swipeDownContinue:"आगे बढ़ने के लिए नीचे स्वाइप करें ↓",
+    swipeDownToAdd:"जोड़ने के लिए नीचे स्वाइप करें",
+    skip:"← स्किप",browse:"ब्राउज़ →",
+    prefsTitle:"पसंद",timingLabel:"समय",dineTakeLabel:"डाइन-इन या टेक-अवे",
+    dineIn:"डाइन-इन",takeAway:"टेक-अवे",nameLabel:"नाम",namePh:"आपका नाम (वैकल्पिक)",
+    phoneLabel:"फोन",phonePh:"फोन नंबर (वैकल्पिक)",notesLabel:"विशेष नोट",
+    notesPh:"कम तीखा, जैन, एक्स्ट्रा पाव आदि।",
+    swipeDownCheckout:"चेकआउट के लिए नीचे स्वाइप करें ↓",checkout:"चेकआउट",
+    whatsappOrder:"व्हाट्सएप ऑर्डर",copyOrder:"ऑर्डर कॉपी करें",startNew:"नई शुरुआत",
+    cartEmpty:"कार्ट खाली है",copied:"कॉपी हो गया ✅",copyFailed:"कॉपी नहीं हुआ",
+    micOn:"🎙 सुन रहा है",micOff:"🎙 बंद",voiceNA:"वॉइस सपोर्ट नहीं",voiceTmp:"वॉइस त्रुटि — पुनः प्रयास",
+    added:"जोड़ा",removed:"हटाया",total:"कुल",each:"प्रत्येक",line:"लाइन",
+    statusOpen:"खुला",statusClosed:"बंद"
+  },
+  gu: {
+    lobbyTitle:"આજ શું મંગાવીએ?",
+    hunt:"શરૂ કરો →",
+    hintSwipe:"નીચે સ્વાઇપ = ઉમેરો • ડાબે = સ્કિપ • જમણે = બ્રાઉઝ • ઉપર = પાછા",
+    openNow:"ખુલ્લું છે • 6PM–10PM",
+    closedNow:"હમણાં બંધ • 6PMએ ખુલશે",
+    bestTime:"સારો સમય: 6PM–10PM • 6PM પહેલા અને 10PM પછી બંધ",
+    selected:"પસંદ",tap:"ટૅપ",items:"આઇટમ્સ",noItems:"આઇટમ નથી",
+    emptyCat:"આ કેટેગરી ખાલી છે.",
+    swipeDownContinue:"નીચે સ્વાઇપ કરીને આગળ વધો ↓",
+    swipeDownToAdd:"ઉમેરવા માટે નીચે સ્વાઇપ કરો",
+    skip:"← સ્કિપ",browse:"બ્રાઉઝ →",
+    prefsTitle:"પસંદગીઓ",timingLabel:"સમયની પસંદગી",dineTakeLabel:"ડાઇન-ઇન કે ટેક-અવે",
+    dineIn:"ડાઇન-ઇન",takeAway:"ટેક-અવે",nameLabel:"નામ",namePh:"તમારું નામ (વૈકલ્પિક)",
+    phoneLabel:"ફોન",phonePh:"ફોન નંબર (વૈકલ્પિક)",notesLabel:"ખાસ નોંધ",
+    notesPh:"ઓછું તીખું, જૈન, એક્સ્ટ્રા પાવ, વગેરે.",
+    swipeDownCheckout:"નીચે સ્વાઇપ કરીને ચેકઆઉટ ↓",checkout:"ચેકઆઉટ",
+    whatsappOrder:"વોટ્સએપ ઓર્ડર",copyOrder:"ઓર્ડર કોપી કરો",startNew:"નવું શરૂ કરો",
+    cartEmpty:"કાર્ટ ખાલી",copied:"કોપી થયું ✅",copyFailed:"કોપી ન થયું",
+    micOn:"🎙 Listening",micOff:"🎙 Off",voiceNA:"Voice not supported",voiceTmp:"Voice error — retry",
+    added:"ઉમેર્યું",removed:"કાઢ્યું",total:"કુલ",each:"દર",line:"લાઇન",
+    statusOpen:"ખુલ્લું",statusClosed:"બંધ"
+  }
+};
+
+/* ── Language state ── */
+let currentDisplayLang = 'gu';   // affects UI rendering
+let currentVoiceLang   = 'gu-IN'; // affects SpeechRecognition.lang
+
+/* t(key) — translated UI string */
+function t(key){ return (UI_STRINGS[currentDisplayLang] || UI_STRINGS.gu)[key] || key; }
+
+/* ================================================================
+   JALARAM MENU — TRILINGUAL
+   ================================================================ */
+const JALARAM_MENU = {
+  meta:{ version:"menu.v1", currency:"INR", outlet:"Jalaram Food Court", location:"Rajkot, Gujarat" },
+  cuisines:{
+    jalaram:{
+      label_en:"JALARAM", label_hi:"जलाराम", label_gu:"JALARAM",
+      categories:{
+        jb_pavbhaji:{
+          label_en:"Pav Bhaji", label_hi:"पाव भाजी", label_gu:"પાવ ભાજી",
+          items:[
+            {id:"classic_pav_bhaji",  name_en:"Classic Pav Bhaji",  name_hi:"क्लासिक पाव भाजी",  name_gu:"ક્લાસિક પાવ ભાજી",  price:120},
+            {id:"butter_pav_bhaji",   name_en:"Butter Pav Bhaji",   name_hi:"बटर पाव भाजी",       name_gu:"બટર પાવ ભાજી",      price:130},
+            {id:"masala_pav_bhaji",   name_en:"Masala Pav Bhaji",   name_hi:"मसाला पाव भाजी",    name_gu:"મસાલા પાવ ભાજી",    price:135},
+            {id:"cheese_pav_bhaji",   name_en:"Cheese Pav Bhaji",   name_hi:"चीज़ पाव भाजी",      name_gu:"ચીઝ પાવ ભાજી",      price:140},
+            {id:"paneer_pav_bhaji",   name_en:"Paneer Pav Bhaji",   name_hi:"पनीर पाव भाजी",     name_gu:"પનીર પાવ ભાજી",     price:150},
+            {id:"jain_pav_bhaji",     name_en:"Jain Pav Bhaji",     name_hi:"जैन पाव भाजी",      name_gu:"જૈન પાવ ભાજી",      price:120}
+          ]
+        },
+        jb_pulav:{
+          label_en:"Pulav", label_hi:"पुलाव", label_gu:"પુલાવ",
+          items:[
+            {id:"veg_pulav",          name_en:"Veg Pulav",          name_hi:"वेज पुलाव",          name_gu:"વેજ પુલાવ",          price:130},
+            {id:"butter_veg_pulav",   name_en:"Butter Veg Pulav",   name_hi:"बटर वेज पुलाव",     name_gu:"બટર વેજ પુલાવ",     price:140},
+            {id:"tava_pulav",         name_en:"Tava Pulav",         name_hi:"तवा पुलाव",          name_gu:"તવા પુલાવ",          price:145},
+            {id:"paneer_pulav",       name_en:"Paneer Pulav",       name_hi:"पनीर पुलाव",        name_gu:"પનીર પુલાવ",        price:160},
+            {id:"cheese_pulav",       name_en:"Cheese Pulav",       name_hi:"चीज़ पुलाव",         name_gu:"ચીઝ પુલાવ",         price:160},
+            {id:"jain_veg_pulav",     name_en:"Jain Veg Pulav",     name_hi:"जैन वेज पुलाव",     name_gu:"જૈન વેજ પુલાવ",     price:130}
+          ]
+        },
+        jb_combos:{
+          label_en:"Combos", label_hi:"कॉम्बो", label_gu:"કોમ્બો",
+          items:[
+            {id:"combo_pavbhaji_pulav",            name_en:"Pav Bhaji + Pulav",             name_hi:"पाव भाजी + पुलाव",            name_gu:"પાવ ભાજી + પુલાવ",           price:240},
+            {id:"combo_cheese_pavbhaji_paneer_pulav",name_en:"Cheese PavBhaji + Paneer Pulav",name_hi:"चीज़ पाव भाजी + पनीर पुलाव", name_gu:"ચીઝ પાવ ભાજી + પનીર પુલાવ", price:290},
+            {id:"combo_jain",                      name_en:"Jain Combo",                    name_hi:"जैन कॉम्बो",                  name_gu:"જૈન કોમ્બો",                 price:230}
+          ]
+        },
+        jb_addons:{
+          label_en:"Add-ons", label_hi:"ऐड-ऑन", label_gu:"એડ-ઓન",
+          items:[
+            {id:"extra_pav",    name_en:"Extra Pav",    name_hi:"एक्स्ट्रा पाव",   name_gu:"એક્સ્ટ્રા પાવ",   price:30},
+            {id:"extra_butter", name_en:"Extra Butter", name_hi:"एक्स्ट्रा बटर",  name_gu:"એક્સ્ટ્રા બટર",  price:20},
+            {id:"extra_cheese", name_en:"Extra Cheese", name_hi:"एक्स्ट्रा चीज़",  name_gu:"એક્સ્ટ્રા ચીઝ",  price:25},
+            {id:"chaas",        name_en:"Chaas",        name_hi:"छाछ",             name_gu:"છાસ",             price:30},
+            {id:"sweet_lassi",  name_en:"Sweet Lassi",  name_hi:"मीठी लस्सी",     name_gu:"સ્વીટ લસ્સી",    price:40}
+          ]
         }
       }
+    }
+  }
+};
+
+/* ── Helpers: pick label from item based on currentDisplayLang ── */
+function itemName(item){
+  return item['name_'+currentDisplayLang] || item.name_en || item.name_gu || item.name || '';
+}
+function catLabel(cat){
+  return cat['label_'+currentDisplayLang] || cat.label_en || cat.label_gu || cat.label || '';
+}
+function cuisineLabel(cuisine){
+  return cuisine['label_'+currentDisplayLang] || cuisine.label_en || cuisine.label_gu || cuisine.label || '';
+}
+
+/* ── Normalize to array format (preserves _en/_hi/_gu fields) ── */
+function normalizeCuisineToArray(cuisineObj){
+  const out = {};
+  for(const cKey in cuisineObj){
+    const c = cuisineObj[cKey];
+    out[cKey.toLowerCase()] = {
+      label_en: c.label_en || '',
+      label_hi: c.label_hi || '',
+      label_gu: c.label_gu || '',
+      get label(){ return cuisineLabel(this); },
+      categories: []
     };
-
-    function normalizeCuisineToArray(cuisineObj){
-      const out = {};
-      for(const cKey in cuisineObj){
-        const c = cuisineObj[cKey];
-        out[cKey.toLowerCase()] = { label: c.label, categories: [] };
-        const cats = c.categories || {};
-        for(const catKey in cats){
-          out[cKey.toLowerCase()].categories.push({
-            id: catKey,
-            label: cats[catKey].label,
-            items: cats[catKey].items || []
-          });
-        }
-      }
-      return out;
-    }
-
-    let RAW_DATA = normalizeCuisineToArray(JALARAM_MENU.cuisines);
-
-    /* ===============================
-       ITEM ICONS (MINIMAL SVG LOGOS)
-       =============================== */
-    const ICON_SVGS = {
-      bowl: `
-        <svg viewBox="0 0 48 48" aria-hidden="true">
-          <path d="M10 22c0 10 6 16 14 16s14-6 14-16H10z"/>
-          <path d="M12 22h24"/>
-          <path d="M16 38h16"/>
-          <path d="M18 16c0-3 2-5 2-8"/>
-          <path d="M24 16c0-3 2-5 2-8"/>
-          <path d="M30 16c0-3 2-5 2-8"/>
-        </svg>
-      `,
-      bread: `
-        <svg viewBox="0 0 48 48" aria-hidden="true">
-          <path d="M10 26c0-8 6-14 14-14s14 6 14 14v10H10V26z"/>
-          <path d="M14 24h20"/>
-          <path d="M16 30h16"/>
-        </svg>
-      `,
-      cheese: `
-        <svg viewBox="0 0 48 48" aria-hidden="true">
-          <path d="M10 18l28-8v20l-28 8V18z"/>
-          <path d="M16 22c1.5 0 2.5 1 2.5 2.5S17.5 27 16 27s-2.5-1-2.5-2.5S14.5 22 16 22z"/>
-          <path d="M26 18c1.5 0 2.5 1 2.5 2.5S27.5 23 26 23s-2.5-1-2.5-2.5S24.5 18 26 18z"/>
-          <path d="M30 28c1.5 0 2.5 1 2.5 2.5S31.5 33 30 33s-2.5-1-2.5-2.5S28.5 28 30 28z"/>
-        </svg>
-      `,
-      drink: `
-        <svg viewBox="0 0 48 48" aria-hidden="true">
-          <path d="M16 14h16l-2 26H18l-2-26z"/>
-          <path d="M18 14l-2-6h16l-2 6"/>
-          <path d="M28 20l6-6"/>
-        </svg>
-      `,
-      combo: `
-        <svg viewBox="0 0 48 48" aria-hidden="true">
-          <path d="M10 30c2 6 8 10 14 10s12-4 14-10"/>
-          <path d="M12 30h24"/>
-          <path d="M14 24c0-6 5-10 10-10s10 4 10 10"/>
-          <path d="M18 24c0-3 3-6 6-6s6 3 6 6"/>
-        </svg>
-      `
-    };
-
-    function getItemIconSVG(item, categoryId){
-      const n = (item.name || "").toLowerCase();
-      const id = (item.id || "").toLowerCase();
-      const cat = (categoryId || "").toLowerCase();
-
-      if(n.includes("પાવ") || n.includes("pav") || id.includes("pav_bhaji")) return ICON_SVGS.bread;
-      if(n.includes("પુલાવ") || n.includes("pulav") || n.includes("pulao") || cat.includes("pulav")) return ICON_SVGS.bowl;
-      if(n.includes("કોમ્બો") || n.includes("combo") || cat.includes("combo")) return ICON_SVGS.combo;
-      if(n.includes("ચીઝ") || n.includes("cheese") || id.includes("cheese")) return ICON_SVGS.cheese;
-      if(n.includes("લસ્સી") || n.includes("lassi") || n.includes("છાસ") || n.includes("chaas") || cat.includes("addons")) return ICON_SVGS.drink;
-
-      if(cat.includes("pavbhaji")) return ICON_SVGS.bread;
-      if(cat.includes("pulav")) return ICON_SVGS.bowl;
-      if(cat.includes("combos")) return ICON_SVGS.combo;
-      if(cat.includes("addons")) return ICON_SVGS.cheese;
-
-      return ICON_SVGS.bowl;
-    }
-
-    /* ===============================
-       OPEN/CLOSE LOGIC (6PM–10PM)
-       =============================== */
-    function isOpenNow(d = new Date()){
-      const h = d.getHours();
-      return (h >= 18 && h < 22);
-    }
-    function bestTimeText(){ return UI_GU.bestTime; }
-
-    function headerStatusHTML(){
-      const open = isOpenNow();
-      return `
-        <div class="pill-status" title="${bestTimeText()}">
-          <span class="dot ${open ? 'open' : 'closed'}"></span>
-          <span>${open ? UI_GU.statusOpen : UI_GU.statusClosed}</span>
-        </div>
-      `;
-    }
-
-    /* ===============================
-       ENGINE STATE
-       =============================== */
-    let ENGINE_STATE = {
-      session_id: "auto-" + Date.now(),
-      categories_selected: [],
-      items_detected: {},
-      preferences: {
-        timing_pref: "now",
-        order_type: "takeaway",
-        customer_name: "",
-        phone: "",
-        notes: ""
-      }
-    };
-
-    /* ===============================
-       UI GLOBALS
-       =============================== */
-    const container = document.getElementById('master-container');
-    let slideElements = [];
-    let currentIdx = 0;
-
-    let dragRatio = 0;
-    const MAX_DRAG = 150;
-    const TRIGGER_THRESHOLD = 0.3;
-
-    function showToast(msg){
-      const t = document.getElementById('toast');
-      t.innerText = msg;
-      t.classList.add('visible');
-      setTimeout(()=>t.classList.remove('visible'), 1900);
-    }
-    function speak(text){
-      try { window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch(e){}
-    }
-
-    /* ===============================
-       MENU HELPERS
-       =============================== */
-    function getJalaramCategories(){
-      const j = RAW_DATA.jalaram;
-      return (j && j.categories) ? j.categories : [];
-    }
-
-    function findItemMeta(name){
-      for(const c in RAW_DATA){
-        for(const cat of RAW_DATA[c].categories){
-          for(const item of cat.items){
-            if(item.name.toLowerCase() === name.toLowerCase()){
-              return { price: item.price || 0 };
-            }
-          }
-        }
-      }
-      return { price: 0 };
-    }
-
-    function incItem(itemName, amount=1){
-      const meta = findItemMeta(itemName);
-      const current = ENGINE_STATE.items_detected[itemName]?.qty || 0;
-      ENGINE_STATE.items_detected[itemName] = {
-        qty: Math.max(0, current + amount),
-        price: meta.price
-      };
-      if(ENGINE_STATE.items_detected[itemName].qty <= 0){
-        delete ENGINE_STATE.items_detected[itemName];
-      }
-      updateFinalSlide();
-    }
-    function decItem(itemName, amount=1){ incItem(itemName, -amount); }
-
-    function calculateCartTotals(){
-      const cart = ENGINE_STATE.items_detected || {};
-      let total = 0;
-      const items = [];
-      for(const [name,data] of Object.entries(cart)){
-        const qty = data.qty || 0;
-        const price = data.price || 0;
-        const lineTotal = qty * price;
-        total += lineTotal;
-        items.push({ name, qty, price, lineTotal });
-      }
-      items.sort((a,b)=>a.name.localeCompare(b.name));
-      return { items, total };
-    }
-
-    /* ===============================
-       LOBBY
-       =============================== */
-    function renderLobby(){
-      container.innerHTML = "";
-      const section = document.createElement('section');
-      section.className = "main-slide active";
-      section.id = "lobby";
-
-      const cats = getJalaramCategories();
-      const open = isOpenNow();
-      const bannerCls = open ? "banner open" : "banner closed";
-      const bannerText = open ? UI_GU.openNow : UI_GU.closedNow;
-
-      const buttonsHtml = cats.map(cat=>{
-        const count = (cat.items||[]).length;
-        const selected = ENGINE_STATE.categories_selected.includes(cat.id) ? "selected" : "";
-        return `
-          <button class="cat-btn ${selected}" onclick="toggleCategory('${cat.id}', this)">
-            <div>
-              <div class="name">${cat.label}</div>
-              <div class="meta">${count} ${UI_GU.items}</div>
-            </div>
-            <div class="meta">${selected ? UI_GU.selected : UI_GU.tap}</div>
-          </button>
-        `;
-      }).join("");
-
-      section.innerHTML = `
-        <div class="slide-header">
-          <div class="header-left">
-            <span class="header-title">JALARAM · SWIPE-OS</span>
-            <span class="header-sub">${JALARAM_MENU.meta.location}</span>
-          </div>
-          ${headerStatusHTML()}
-        </div>
-
-        <div class="lobby-container">
-          <h1 style="text-align:center; margin-bottom:6px;">${UI_GU.lobbyTitle}</h1>
-          <div class="${bannerCls}" id="lobby-open-banner">${bannerText} • ${UI_GU.bestTime}</div>
-
-          <div class="grid">${buttonsHtml}</div>
-
-          <button class="btn primary" onclick="startHunt()">${UI_GU.hunt}</button>
-          <div class="hint">${UI_GU.hintSwipe}</div>
-        </div>
-      `;
-
-      container.appendChild(section);
-      slideElements = [section];
-      currentIdx = 0;
-    }
-
-    window.toggleCategory = (catId, btn) => {
-      const i = ENGINE_STATE.categories_selected.indexOf(catId);
-      if(i >= 0){
-        ENGINE_STATE.categories_selected.splice(i,1);
-        btn.classList.remove('selected');
-      }else{
-        ENGINE_STATE.categories_selected.push(catId);
-        btn.classList.add('selected');
-      }
-    };
-
-    window.startHunt = () => {
-      if(ENGINE_STATE.categories_selected.length === 0){
-        showToast("ઓછામાં ઓછી એક કેટેગરી પસંદ કરો!");
-        speak("ઓછામાં ઓછી એક કેટેગરી પસંદ કરો");
-        return;
-      }
-      buildGameDeck();
-    };
-
-    /* ===============================
-       DECK BUILD
-       =============================== */
-    function buildGameDeck(){
-      container.innerHTML = "";
-      const slides = [];
-
-      const allCats = getJalaramCategories();
-      const selectedCats = allCats.filter(c=>ENGINE_STATE.categories_selected.includes(c.id));
-
-      selectedCats.forEach(cat=>{
-        slides.push({
-          id: cat.id,
-          type:"selector",
-          title:`જલારામ · ${cat.label}`,
-          categoryLabel: cat.label,
-          categoryId: cat.id,
-          items: cat.items || []
-        });
-      });
-
-      slides.push({ id:"prefs", type:"prefs", title: UI_GU.prefsTitle });
-      slides.push({ id:"final", type:"final", title: UI_GU.checkout });
-
-      slides.forEach((cfg, idx)=>{
-        const section = document.createElement('section');
-        section.className = `main-slide ${idx===0 ? 'active' : 'next'}`;
-        section.id = cfg.id;
-        section.dataset.mode = cfg.type === "selector" ? "options" : "static";
-
-        let html = `
-          <div class="slide-header">
-            <div class="header-left">
-              <span class="header-title">${cfg.title}</span>
-              <span class="header-sub">${JALARAM_MENU.meta.outlet}</span>
-            </div>
-            ${headerStatusHTML()}
-          </div>
-          <div class="carousel-viewport" data-id="${cfg.id}">
-        `;
-
-        if(cfg.type === "selector"){
-          const items = cfg.items || [];
-          if(!items.length){
-            html += `
-              <div class="sub-slide static">
-                <h1>${UI_GU.noItems}</h1>
-                <div class="primary-question">${UI_GU.emptyCat}</div>
-                <div class="nav-hint"><span style="width:100%;text-align:center;color:var(--orange);font-weight:950;">${UI_GU.swipeDownContinue}</span></div>
-              </div>
-            `;
-          } else {
-            items.forEach((item,i)=>{
-              const icon = getItemIconSVG(item, cfg.categoryId);
-              html += `
-                <div class="sub-slide ${i===0 ? 'opt-active':'opt-hidden'}" data-opt-idx="${i}" data-val="${item.name}">
-                  <div class="role-label">${cfg.categoryLabel}</div>
-
-                  <div class="item-icon-wrap" aria-hidden="true">${icon}</div>
-
-                  <h1>${item.name}${item.price ? `<span class="price">₹${item.price}</span>` : ""}</h1>
-                  <div class="primary-question">${UI_GU.swipeDownToAdd}</div>
-                  <div class="nav-hint">
-                    <span style="flex:1;color:var(--bad);font-weight:950;">${UI_GU.skip}</span>
-                    <span style="flex:2;text-align:center;color:var(--go);font-weight:950;">${UI_GU.swipeDownToAdd}</span>
-                    <span style="flex:1;text-align:right;">${UI_GU.browse}</span>
-                  </div>
-                </div>
-              `;
-            });
-          }
-        }
-
-        if(cfg.type === "prefs"){
-          const open = isOpenNow();
-          const bannerCls = open ? "banner open" : "banner closed";
-          const bannerText = open ? UI_GU.openNow : UI_GU.closedNow;
-
-          html += `
-            <div class="sub-slide static">
-              <div style="max-width:560px; margin:0 auto;">
-                <h1 style="margin-bottom:8px;">${UI_GU.prefsTitle}</h1>
-                <div class="${bannerCls}" id="prefs-open-banner">${bannerText} • ${UI_GU.bestTime}</div>
-
-                <div class="card">
-                  <div class="label">${UI_GU.timingLabel}</div>
-                  <div class="pill-row">
-                    <div class="pill" data-timing="now" onclick="setTiming(this)">હમણાં</div>
-                    <div class="pill" data-timing="6pm" onclick="setTiming(this)">6 PM</div>
-                    <div class="pill" data-timing="7pm" onclick="setTiming(this)">7 PM</div>
-                    <div class="pill" data-timing="8pm" onclick="setTiming(this)">8 PM</div>
-                    <div class="pill" data-timing="9pm" onclick="setTiming(this)">9 PM</div>
-                    <div class="pill" data-timing="10pm" onclick="setTiming(this)">10 PM</div>
-                  </div>
-
-                  <div class="field">
-                    <div class="label">${UI_GU.dineTakeLabel}</div>
-                    <div class="pill-row">
-                      <div class="pill" data-otype="dinein" onclick="setOrderType(this)">${UI_GU.dineIn}</div>
-                      <div class="pill" data-otype="takeaway" onclick="setOrderType(this)">${UI_GU.takeAway}</div>
-                    </div>
-                  </div>
-
-                  <div class="field">
-                    <div class="label">${UI_GU.nameLabel}</div>
-                    <input class="input" id="cust-name" placeholder="${UI_GU.namePh}" oninput="syncPrefs()" />
-                  </div>
-
-                  <div class="field">
-                    <div class="label">${UI_GU.phoneLabel}</div>
-                    <input class="input" id="cust-phone" inputmode="tel" placeholder="${UI_GU.phonePh}" oninput="syncPrefs()" />
-                  </div>
-
-                  <div class="field">
-                    <div class="label">${UI_GU.notesLabel}</div>
-                    <textarea id="cust-notes" placeholder="${UI_GU.notesPh}" oninput="syncPrefs()"></textarea>
-                  </div>
-                </div>
-
-                <div class="nav-hint" style="margin-top:18px;">
-                  <span style="width:100%;text-align:center;color:var(--orange);font-weight:950;">${UI_GU.swipeDownCheckout}</span>
-                </div>
-              </div>
-            </div>
-          `;
-        }
-
-        if(cfg.type === "final"){
-          const open = isOpenNow();
-          const bannerCls = open ? "banner open" : "banner closed";
-          const bannerText = open ? UI_GU.openNow : UI_GU.closedNow;
-
-          html += `
-            <div class="sub-slide static">
-              <div class="verdict-container" style="max-width:560px;margin:0 auto;">
-                <div class="choice-header">${UI_GU.checkout}</div>
-                <div class="${bannerCls}" id="final-open-banner" style="margin-bottom:12px;">${bannerText} • ${UI_GU.bestTime}</div>
-
-                <div class="input-group" id="final-list"></div>
-
-                <button class="btn whatsapp" onclick="sendWhatsappOrder()">${UI_GU.whatsappOrder}</button>
-                <button class="btn" style="margin-top:10px;background:#fff;color:#000;border:none;" onclick="copyOrderText()">${UI_GU.copyOrder}</button>
-                <button class="btn" style="margin-top:10px;background:#1a1a1a;" onclick="startOver()">${UI_GU.startNew}</button>
-
-                <div class="hint" style="margin-top:10px;">
-                  વોઈસ: “next / back / select / skip / browse / whatsapp / plus પાવ ભાજી / minus પુલાવ”
-                </div>
-              </div>
-            </div>
-          `;
-        }
-
-        html += `</div>`;
-        section.innerHTML = html;
-        container.appendChild(section);
-      });
-
-      slideElements = Array.from(document.querySelectorAll('.main-slide'));
-      currentIdx = 0;
-      attachEvents();
-      hydratePrefsUI();
-      updateFinalSlide();
-    }
-
-    /* ===============================
-       NAV + SWIPE
-       =============================== */
-    function goToSlide(idx){
-      if(idx < 0 || idx >= slideElements.length) return;
-
-      const curr = slideElements[currentIdx];
-      curr.classList.remove('active');
-      if(idx > currentIdx){ curr.classList.add('prev'); curr.classList.remove('next'); }
-      else { curr.classList.add('next'); curr.classList.remove('prev'); }
-
-      currentIdx = idx;
-      const next = slideElements[currentIdx];
-      next.classList.remove('prev','next');
-      next.classList.add('active');
-
-      dragRatio = 0;
-      document.getElementById('depth-fill').style.height = '0%';
-
-      if(next.id === "final") updateFinalSlide();
-      if(next.id === "prefs") hydratePrefsUI();
-    }
-
-    function executeAction(action){
-      const currSlide = slideElements[currentIdx];
-      const mode = currSlide.dataset.mode;
-
-      switch(action){
-        case "NEXT": goToSlide(currentIdx+1); break;
-        case "PREV": if(currentIdx>0) goToSlide(currentIdx-1); break;
-
-        case "SELECT":
-          if(mode === "options"){
-            const view = currSlide.querySelector('.carousel-viewport');
-            const val = view.querySelectorAll('.sub-slide')[view._currOpt || 0]?.dataset?.val;
-            if(!val){ showToast("આઇટમ નથી"); return; }
-            incItem(val, 1);
-            showToast(`${UI_GU.added}: ${val}`);
-            goToSlide(currentIdx+1);
-          } else {
-            goToSlide(currentIdx+1);
-          }
-          break;
-
-        case "SKIP":
-          if(mode === "options"){
-            showToast("સ્કિપ");
-            goToSlide(currentIdx+1);
-          }
-          break;
-
-        case "BROWSE":
-          if(mode === "options"){
-            const view = currSlide.querySelector('.carousel-viewport');
-            const slides = view.querySelectorAll('.sub-slide');
-            if(!slides.length) return;
-            let curr = view._currOpt || 0;
-            curr = (curr + 1) % slides.length;
-            view._currOpt = curr;
-            slides.forEach((s,i)=>{
-              if(i===curr){ s.classList.remove('opt-hidden'); s.classList.add('opt-active'); }
-              else { s.classList.remove('opt-active'); s.classList.add('opt-hidden'); }
-            });
-          }
-          break;
-      }
-    }
-
-    function attachEvents(){
-      let startX=0,startY=0;
-
-      document.querySelectorAll('.carousel-viewport').forEach(view=>{
-        view._currOpt = 0;
-
-        view.addEventListener('touchstart', e=>{
-          startX = e.touches[0].clientX;
-          startY = e.touches[0].clientY;
-        }, {passive:true});
-
-        view.addEventListener('touchmove', e=>{
-          const dx = e.touches[0].clientX - startX;
-          const dy = e.touches[0].clientY - startY;
-          const axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-
-          if(axis === 'y' && dy > 0){
-            e.preventDefault();
-            dragRatio = Math.min(dy/MAX_DRAG, 1);
-            const fill = document.getElementById('depth-fill');
-            fill.style.height = (dragRatio*100)+'%';
-            fill.style.backgroundColor = dragRatio > TRIGGER_THRESHOLD ? 'var(--go)' : '#333';
-          }
-        }, {passive:false});
-
-        view.addEventListener('touchend', e=>{
-          const dx = e.changedTouches[0].clientX - startX;
-          const dy = e.changedTouches[0].clientY - startY;
-          const axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-
-          if(axis === 'y'){
-            if(dy < -50) executeAction("PREV");
-            else if(dy > 50 && dragRatio > TRIGGER_THRESHOLD) executeAction("SELECT");
-          } else {
-            const mode = view.closest('.main-slide').dataset.mode;
-            if(mode === 'options'){
-              if(dx < -50) executeAction("SKIP");
-              else if(dx > 50) executeAction("BROWSE");
-            }
-          }
-
-          document.getElementById('depth-fill').style.height = '0%';
-          dragRatio = 0;
-        });
+    const cats = c.categories || {};
+    for(const catKey in cats){
+      const cat = cats[catKey];
+      out[cKey.toLowerCase()].categories.push({
+        id: catKey,
+        label_en: cat.label_en || '',
+        label_hi: cat.label_hi || '',
+        label_gu: cat.label_gu || '',
+        get label(){ return catLabel(this); },
+        items: (cat.items || []).map(item => ({
+          id:      item.id,
+          name_en: item.name_en || '',
+          name_hi: item.name_hi || '',
+          name_gu: item.name_gu || item.name || '',
+          get name(){ return itemName(this); },
+          price:   item.price || 0,
+          link:    item.link  || ''
+        }))
       });
     }
+  }
+  return out;
+}
 
-    /* ===============================
-       FINAL SLIDE (+ / - controls)
-       =============================== */
-    function updateFinalSlide(){
-      const list = document.getElementById('final-list');
-      if(!list) return;
+let RAW_DATA = normalizeCuisineToArray(JALARAM_MENU.cuisines);
 
-      const { items, total } = calculateCartTotals();
+/* ================================================================
+   ITEM ICONS
+   ================================================================ */
+const ICON_SVGS = {
+  bowl:`<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 22c0 10 6 16 14 16s14-6 14-16H10z"/><path d="M12 22h24"/><path d="M16 38h16"/><path d="M18 16c0-3 2-5 2-8"/><path d="M24 16c0-3 2-5 2-8"/><path d="M30 16c0-3 2-5 2-8"/></svg>`,
+  bread:`<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 26c0-8 6-14 14-14s14 6 14 14v10H10V26z"/><path d="M14 24h20"/><path d="M16 30h16"/></svg>`,
+  cheese:`<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 18l28-8v20l-28 8V18z"/><circle cx="16" cy="24.5" r="2.5"/><circle cx="26" cy="20.5" r="2.5"/><circle cx="30" cy="30.5" r="2.5"/></svg>`,
+  drink:`<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M16 14h16l-2 26H18l-2-26z"/><path d="M18 14l-2-6h16l-2 6"/><path d="M28 20l6-6"/></svg>`,
+  combo:`<svg viewBox="0 0 48 48" aria-hidden="true"><path d="M10 30c2 6 8 10 14 10s12-4 14-10"/><path d="M12 30h24"/><path d="M14 24c0-6 5-10 10-10s10 4 10 10"/><path d="M18 24c0-3 3-6 6-6s6 3 6 6"/></svg>`
+};
+
+function getItemIconSVG(item, categoryId){
+  const n = itemName(item).toLowerCase();
+  const id = (item.id || '').toLowerCase();
+  const cat = (categoryId || '').toLowerCase();
+  if(n.includes('pav') || id.includes('pav_bhaji') || cat.includes('pavbhaji')) return ICON_SVGS.bread;
+  if(n.includes('pulav') || n.includes('pulao') || cat.includes('pulav')) return ICON_SVGS.bowl;
+  if(n.includes('combo') || cat.includes('combo')) return ICON_SVGS.combo;
+  if(n.includes('cheese') || id.includes('cheese')) return ICON_SVGS.cheese;
+  if(n.includes('lassi') || n.includes('chaas') || cat.includes('addon')) return ICON_SVGS.drink;
+  return ICON_SVGS.bowl;
+}
+
+/* ================================================================
+   OPEN/CLOSE LOGIC (6PM–10PM IST)
+   ================================================================ */
+function isOpenNow(d = new Date()){
+  const h = d.getHours();
+  return (h >= 18 && h < 22);
+}
+function headerStatusHTML(){
+  const open = isOpenNow();
+  return `<div class="pill-status"><span class="dot ${open?'open':'closed'}"></span><span>${open?t('statusOpen'):t('statusClosed')}</span></div>`;
+}
+
+/* ================================================================
+   ENGINE STATE
+   ================================================================ */
+let ENGINE_STATE = {
+  session_id: 'auto-' + Date.now(),
+  categories_selected: [],
+  items_detected: {},
+  preferences:{ timing_pref:'now', order_type:'takeaway', customer_name:'', phone:'', notes:'' }
+};
+
+/* ================================================================
+   UI GLOBALS
+   ================================================================ */
+const container = document.getElementById('master-container');
+let slideElements = [];
+let currentIdx = 0;
+let dragRatio = 0;
+const MAX_DRAG = 150;
+const TRIGGER_THRESHOLD = 0.3;
+let inGameMode = false; // track if we're in deck vs lobby
+
+let toastTimer = null;
+function showToast(msg, color){
+  const el = document.getElementById('toast');
+  el.innerText = msg;
+  el.style.color = color || '';
+  el.classList.add('visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>el.classList.remove('visible'), 2000);
+}
+function speak(text){
+  try{ window.speechSynthesis.cancel(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); }catch(e){}
+}
+
+/* ================================================================
+   MIC STATE
+   ================================================================ */
+const MIC_LABEL = { idle:'', listening:'Listening…', processing:'Processing…', blocked:'Allow Mic', unsupported:'Not supported' };
+function setMicState(state){
+  const fab = document.getElementById('mic-fab');
+  const lbl = document.getElementById('mic-label');
+  if(!fab) return;
+  fab.className = 'mic-' + state;
+  lbl.textContent = MIC_LABEL[state] || '';
+  lbl.classList.toggle('visible', ['listening','processing','blocked'].includes(state));
+}
+
+/* ================================================================
+   EARCON (WebAudio)
+   ================================================================ */
+function playEarcon(type){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+    if(type==='start'){
+      osc.frequency.setValueAtTime(660,now); osc.frequency.exponentialRampToValueAtTime(1050,now+.1);
+      gain.gain.setValueAtTime(.12,now); gain.gain.exponentialRampToValueAtTime(.001,now+.18);
+      osc.start(now); osc.stop(now+.18);
+    } else if(type==='stop'){
+      osc.frequency.setValueAtTime(880,now); osc.frequency.exponentialRampToValueAtTime(440,now+.12);
+      gain.gain.setValueAtTime(.1,now); gain.gain.exponentialRampToValueAtTime(.001,now+.18);
+      osc.start(now); osc.stop(now+.18);
+    } else if(type==='error'){
+      osc.type='sawtooth'; osc.frequency.setValueAtTime(220,now);
+      gain.gain.setValueAtTime(.08,now); gain.gain.exponentialRampToValueAtTime(.001,now+.2);
+      osc.start(now); osc.stop(now+.2);
+    }
+  }catch(e){}
+}
+
+function doVibrate(pat){ try{ if(navigator.vibrate) navigator.vibrate(pat); }catch(e){} }
+
+/* ================================================================
+   LANGUAGE TOGGLE
+   — sets BOTH display lang (re-renders) AND voice lang
+   ================================================================ */
+let rec = null, recActive = false, noSpeechRetries = 0, permBlocked = false;
+const MAX_RETRIES = 3;
+
+window.setLang = (el) => {
+  document.querySelectorAll('.lang-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+
+  const full = el.dataset.lang;          // e.g. "hi-IN"
+  const short = full.split('-')[0];      // e.g. "hi"
+
+  currentVoiceLang   = full;
+  currentDisplayLang = short;
+
+  try{ localStorage.setItem('food_decide_lang', full); }catch(e){}
+
+  // Update voice recognition language live
+  if(rec){ try{ rec.lang = full; }catch(e){} }
+
+  // Re-render everything in new language
+  if(inGameMode){
+    buildGameDeck();
+  } else {
+    renderLobby();
+  }
+  showToast('Language: ' + el.textContent.trim());
+};
+
+function restoreLang(){
+  try{
+    const saved = localStorage.getItem('food_decide_lang');
+    if(saved){
+      const chip = document.querySelector(`.lang-chip[data-lang="${saved}"]`);
+      if(chip){
+        document.querySelectorAll('.lang-chip').forEach(c=>c.classList.remove('active'));
+        chip.classList.add('active');
+        currentVoiceLang   = saved;
+        currentDisplayLang = saved.split('-')[0];
+      }
+    }
+  }catch(e){}
+}
+
+/* ================================================================
+   MULTILINGUAL VOICE COMMANDS
+   ================================================================ */
+const CMD_SYNONYMS = {
+  NEXT:     ['next','forward','aagal','aage','aage chalo','aage jao','आगे','आगे चलो','आगे जाओ','આગળ','આગળ જાઓ','આગળ ચાલો'],
+  PREV:     ['back','previous','peeche','pachhad','वापस','पीछे','पिछला','પાછળ','પાછા','પાછા જાઓ'],
+  SELECT:   ['select','choose','add it','pasand','haan','yes','ok','okay','le lo','chuno','ठीक है','हाँ','हां','लो','पसंद','चुनो','ओ के','પસંદ','લ્યો','હા','ઓ.કે.'],
+  SKIP:     ['skip','nahin','no','chhodo','nahi','छोड़ो','नहीं','ना','સ્કિપ','ના','ઉડી જાઓ','રેહવા દો','છોડો','જવા દો'],
+  BROWSE:   ['browse','show more','next option','aur','or dikhao','और दिखाओ','और','आगे वाला','બ્રાઉઝ','અગલું','બીજું','વધુ','વધુ દેખાડો'],
+  WHATSAPP: ['whatsapp','wa','send order','order bhejo','भेजो','व्हाट्सएप','वोट्सएप','ऑर्डर भेजो','મોકલો','વોટ્સએપ','ઓર્ડર મોકલો']
+};
+
+function detectIntent(txt){
+  const low = txt.toLowerCase().trim();
+  for(const [intent, words] of Object.entries(CMD_SYNONYMS)){
+    for(const w of words){ if(low.includes(w.toLowerCase())) return intent; }
+  }
+  return null;
+}
+
+function bestMatchItemFromText(txt){
+  const allItems = [];
+  for(const cat of getJalaramCategories()){
+    for(const item of (cat.items||[])){ allItems.push(item); }
+  }
+  const low = txt.toLowerCase();
+  let best = null;
+  for(const item of allItems){
+    // match against all three language names
+    for(const field of ['name_en','name_hi','name_gu']){
+      const nlow = (item[field]||'').toLowerCase();
+      if(nlow && low.includes(nlow)){
+        if(!best || nlow.length > (best['name_'+currentDisplayLang]||'').toLowerCase().length) best = item;
+      }
+    }
+  }
+  return best;
+}
+
+function dispatchVoice(raw){
+  const txt = (raw||'').toLowerCase().replace(/\s+/g,' ').trim();
+  showToast('🎙 ' + raw);
+
+  if(txt.startsWith('plus ')||txt.startsWith('increase ')||txt.startsWith('add ')){
+    const item = bestMatchItemFromText(txt);
+    if(item){ incItem(item, 1); speak('Added'); return; }
+  }
+  if(txt.startsWith('minus ')||txt.startsWith('decrease ')||txt.startsWith('remove ')){
+    const item = bestMatchItemFromText(txt);
+    if(item){ decItem(item, 1); speak('Removed'); return; }
+  }
+  const intent = detectIntent(txt);
+  switch(intent){
+    case 'NEXT':     return goToSlide(currentIdx+1);
+    case 'PREV':     return currentIdx>0 ? goToSlide(currentIdx-1) : null;
+    case 'SELECT':   return executeAction('SELECT');
+    case 'SKIP':     return executeAction('SKIP');
+    case 'BROWSE':   return executeAction('BROWSE');
+    case 'WHATSAPP': return sendWhatsappOrder();
+    default:         speak('Not recognized');
+  }
+}
+
+/* ================================================================
+   VOICE ENGINE
+   ================================================================ */
+function initVoice(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    setMicState('unsupported');
+    showToast(t('voiceNA'),'#ff9a9a');
+    window.toggleListenMode = ()=>showToast(t('voiceNA'),'#ff9a9a');
+    return;
+  }
+
+  function createRec(){
+    const r = new SR();
+    r.lang = currentVoiceLang;
+    r.continuous = true; r.interimResults = false;
+
+    r.onstart = ()=>{ recActive=true; noSpeechRetries=0; setMicState('listening'); };
+    r.onspeechend = ()=>{ setMicState('processing'); };
+
+    r.onresult = (e)=>{
+      const raw = e.results[e.results.length-1][0].transcript;
+      setTimeout(()=>{ dispatchVoice(raw); if(recActive) setMicState('listening'); }, 280);
+    };
+
+    r.onerror = (e)=>{
+      const code = e.error;
+      if(code==='not-allowed'||code==='service-not-allowed'){
+        permBlocked=true; recActive=false;
+        setMicState('blocked'); playEarcon('error'); doVibrate([40,60,40]);
+        showToast('🚫 Mic blocked — tap to retry','#ff9a9a');
+      } else if(code==='no-speech'){
+        noSpeechRetries++;
+        if(noSpeechRetries>=MAX_RETRIES){ recActive=false; setMicState('idle'); showToast('No speech detected'); }
+      } else if(code==='audio-capture'){
+        recActive=false; setMicState('blocked'); playEarcon('error'); doVibrate([30]);
+        showToast('🎙 No mic found','#ff9a9a');
+      } else if(code==='network'){
+        noSpeechRetries++;
+        if(noSpeechRetries>=MAX_RETRIES){ recActive=false; setMicState('idle'); showToast('Network error — voice off'); }
+      } else { showToast(t('voiceTmp')); }
+    };
+
+    r.onend = ()=>{
+      if(recActive && !permBlocked){ setTimeout(()=>{ try{ r.lang=currentVoiceLang; r.start(); }catch(e){} },200); }
+      else if(!recActive){ setMicState('idle'); }
+    };
+    return r;
+  }
+
+  rec = createRec();
+
+  window.toggleListenMode = ()=>{
+    if(document.getElementById('mic-fab').classList.contains('mic-unsupported')) return;
+    if(permBlocked){
+      navigator.mediaDevices?.getUserMedia({audio:true})
+        .then(stream=>{ stream.getTracks().forEach(t=>t.stop()); permBlocked=false; noSpeechRetries=0;
+          rec=createRec(); recActive=true; setMicState('listening');
+          try{ rec.start(); }catch(e){} playEarcon('start'); doVibrate([20]); showToast(t('micOn')); })
+        .catch(()=>{ showToast('Go to Settings → allow mic','#ff9a9a'); doVibrate([40,60,40]); });
+      return;
+    }
+    if(recActive){
+      recActive=false; try{ rec.stop(); }catch(e){}
+      setMicState('idle'); playEarcon('stop'); doVibrate([15]); showToast(t('micOff'));
+    } else {
+      noSpeechRetries=0; recActive=true; rec.lang=currentVoiceLang;
+      try{ rec.start(); }catch(e){ recActive=false; setMicState('idle'); return; }
+      setMicState('listening'); playEarcon('start'); doVibrate([20]); showToast(t('micOn'));
+    }
+  };
+
+  noSpeechRetries=0; recActive=true;
+  try{ rec.start(); setMicState('listening'); showToast(t('micOn')+' ✅'); }
+  catch(e){ recActive=false; setMicState('idle'); }
+}
+
+/* ================================================================
+   MENU HELPERS
+   ================================================================ */
+function getJalaramCategories(){
+  const j = RAW_DATA.jalaram;
+  return (j&&j.categories) ? j.categories : [];
+}
+
+function findItemMeta(itemObj){
+  // itemObj is the actual item object (has price)
+  return { price: itemObj.price || 0 };
+}
+function findItemByAnyName(name){
+  for(const cat of getJalaramCategories()){
+    for(const item of (cat.items||[])){
+      if(item.name_en===name||item.name_hi===name||item.name_gu===name) return item;
+    }
+  }
+  return null;
+}
+
+function incItem(itemObj, amount=1){
+  const key = itemObj.id; // stable ID regardless of lang
+  const current = ENGINE_STATE.items_detected[key]?.qty || 0;
+  ENGINE_STATE.items_detected[key] = {
+    qty:   Math.max(0, current+amount),
+    price: itemObj.price||0,
+    item:  itemObj   // keep reference for name lookup
+  };
+  if(ENGINE_STATE.items_detected[key].qty<=0) delete ENGINE_STATE.items_detected[key];
+  updateFinalSlide();
+}
+function decItem(itemObj, amount=1){ incItem(itemObj, -amount); }
+
+function calculateCartTotals(){
+  const cart = ENGINE_STATE.items_detected || {};
+  let total=0; const items=[];
+  for(const [id,data] of Object.entries(cart)){
+    const qty=data.qty||0, price=data.price||0, lineTotal=qty*price;
+    total+=lineTotal;
+    items.push({ id, name:itemName(data.item), qty, price, lineTotal, item:data.item });
+  }
+  items.sort((a,b)=>a.name.localeCompare(b.name));
+  return { items, total };
+}
+
+/* ================================================================
+   LOBBY
+   ================================================================ */
+function renderLobby(){
+  inGameMode = false;
+  container.innerHTML='';
+  const section = document.createElement('section');
+  section.className='main-slide active'; section.id='lobby';
+
+  const cats = getJalaramCategories();
+  const open = isOpenNow();
+  const bannerCls = open?'banner open':'banner closed';
+  const bannerText = open?t('openNow'):t('closedNow');
+
+  const buttonsHtml = cats.map(cat=>{
+    const count=(cat.items||[]).length;
+    const selected=ENGINE_STATE.categories_selected.includes(cat.id)?'selected':'';
+    return `<button class="cat-btn ${selected}" onclick="toggleCategory('${cat.id}',this)">
+      <div><div class="name">${catLabel(cat)}</div><div class="meta">${count} ${t('items')}</div></div>
+      <div class="meta">${selected?t('selected'):t('tap')}</div>
+    </button>`;
+  }).join('');
+
+  section.innerHTML=`
+    <div class="slide-header">
+      <div class="header-left">
+        <span class="header-title">JALARAM · SWIPE-OS</span>
+        <span class="header-sub">${JALARAM_MENU.meta.location}</span>
+      </div>
+      ${headerStatusHTML()}
+    </div>
+    <div class="lobby-container">
+      <h1 style="text-align:center;margin-bottom:6px;">${t('lobbyTitle')}</h1>
+      <div class="${bannerCls}" id="lobby-open-banner">${bannerText} • ${t('bestTime')}</div>
+      <div class="grid">${buttonsHtml}</div>
+      <button class="btn primary" onclick="startHunt()">${t('hunt')}</button>
+      <div class="hint">${t('hintSwipe')}</div>
+    </div>`;
+
+  container.appendChild(section);
+  slideElements=[section]; currentIdx=0;
+}
+
+window.toggleCategory = (catId, btn)=>{
+  const i = ENGINE_STATE.categories_selected.indexOf(catId);
+  if(i>=0){ ENGINE_STATE.categories_selected.splice(i,1); btn.classList.remove('selected'); }
+  else { ENGINE_STATE.categories_selected.push(catId); btn.classList.add('selected'); }
+};
+
+window.startHunt = ()=>{
+  if(!ENGINE_STATE.categories_selected.length){
+    showToast('ઓછામાં ઓછી એક કેટેગરી પસંદ કરો!'); speak('Please select a category'); return;
+  }
+  buildGameDeck();
+};
+
+/* ================================================================
+   DECK BUILD
+   ================================================================ */
+function buildGameDeck(){
+  inGameMode = true;
+  container.innerHTML='';
+  const slides=[];
+  const allCats = getJalaramCategories();
+  const selectedCats = allCats.filter(c=>ENGINE_STATE.categories_selected.includes(c.id));
+
+  selectedCats.forEach(cat=>{
+    slides.push({ id:cat.id, type:'selector',
+      title:`${cuisineLabel(RAW_DATA.jalaram)} · ${catLabel(cat)}`,
+      cat });
+  });
+  slides.push({ id:'prefs', type:'prefs', title: t('prefsTitle') });
+  slides.push({ id:'final', type:'final', title: t('checkout') });
+
+  slides.forEach((cfg,idx)=>{
+    const section = document.createElement('section');
+    section.className=`main-slide ${idx===0?'active':'next'}`;
+    section.id=cfg.id;
+    section.dataset.mode = cfg.type==='selector'?'options':'static';
+
+    let html=`
+      <div class="slide-header">
+        <div class="header-left">
+          <span class="header-title">${cfg.title}</span>
+          <span class="header-sub">${JALARAM_MENU.meta.outlet}</span>
+        </div>
+        ${headerStatusHTML()}
+      </div>
+      <div class="carousel-viewport" data-id="${cfg.id}">`;
+
+    if(cfg.type==='selector'){
+      const items=(cfg.cat.items||[]);
       if(!items.length){
-        list.innerHTML = `<div style="text-align:center;color:#777;font-family:var(--mono);padding:18px;">${UI_GU.cartEmpty}</div>`;
-        return;
-      }
-
-      let html = "";
-      items.forEach(i=>{
-        html += `
-          <div class="item-row">
-            <div class="item-name">
-              <div class="t">${escapeHtml(i.name)}</div>
-              <div class="s">₹${i.price} ${UI_GU.each} • ${UI_GU.line} ₹${i.lineTotal}</div>
+        html+=`<div class="sub-slide static"><h1>${t('noItems')}</h1>
+          <div class="primary-question">${t('emptyCat')}</div>
+          <div class="nav-hint"><span style="width:100%;text-align:center;color:var(--orange);font-weight:950;">${t('swipeDownContinue')}</span></div>
+        </div>`;
+      } else {
+        items.forEach((item,i)=>{
+          const icon=getItemIconSVG(item,cfg.id);
+          const dName=itemName(item);
+          html+=`<div class="sub-slide ${i===0?'opt-active':'opt-hidden'}" data-opt-idx="${i}" data-item-id="${item.id}">
+            <div class="role-label">${catLabel(cfg.cat)}</div>
+            <div class="item-icon-wrap" aria-hidden="true">${icon}</div>
+            <h1>${dName}${item.price?`<span class="price">₹${item.price}</span>`:''}</h1>
+            <div class="primary-question">${t('swipeDownToAdd')}</div>
+            <div class="nav-hint">
+              <span style="flex:1;color:var(--bad);font-weight:950;">${t('skip')}</span>
+              <span style="flex:2;text-align:center;color:var(--go);font-weight:950;">${t('swipeDownToAdd')}</span>
+              <span style="flex:1;text-align:right;">${t('browse')}</span>
             </div>
-            <div class="qty-box">
-              <button class="qty-btn" onclick="decItemUI('${escapeAttr(i.name)}')">-</button>
-              <div class="qty-num">${i.qty}</div>
-              <button class="qty-btn" onclick="incItemUI('${escapeAttr(i.name)}')">+</button>
+          </div>`;
+        });
+      }
+    }
+
+    if(cfg.type==='prefs'){
+      const open=isOpenNow(); const bannerCls=open?'banner open':'banner closed';
+      html+=`<div class="sub-slide static"><div style="max-width:560px;margin:0 auto;">
+        <h1 style="margin-bottom:8px;">${t('prefsTitle')}</h1>
+        <div class="${bannerCls}" id="prefs-open-banner">${(open?t('openNow'):t('closedNow'))} • ${t('bestTime')}</div>
+        <div class="card">
+          <div class="label">${t('timingLabel')}</div>
+          <div class="pill-row">
+            ${['now','6pm','7pm','8pm','9pm','10pm'].map(v=>`<div class="pill" data-timing="${v}" onclick="setTiming(this)">${v==='now'?'Now':v.toUpperCase()}</div>`).join('')}
+          </div>
+          <div class="field">
+            <div class="label">${t('dineTakeLabel')}</div>
+            <div class="pill-row">
+              <div class="pill" data-otype="dinein" onclick="setOrderType(this)">${t('dineIn')}</div>
+              <div class="pill" data-otype="takeaway" onclick="setOrderType(this)">${t('takeAway')}</div>
             </div>
           </div>
-        `;
-      });
-
-      html += `
-        <div class="total-row">
-          <span class="k">${UI_GU.total}</span>
-          <span class="v">₹${total}</span>
+          <div class="field"><div class="label">${t('nameLabel')}</div><input class="input" id="cust-name" placeholder="${t('namePh')}" oninput="syncPrefs()"/></div>
+          <div class="field"><div class="label">${t('phoneLabel')}</div><input class="input" id="cust-phone" inputmode="tel" placeholder="${t('phonePh')}" oninput="syncPrefs()"/></div>
+          <div class="field"><div class="label">${t('notesLabel')}</div><textarea id="cust-notes" placeholder="${t('notesPh')}" oninput="syncPrefs()"></textarea></div>
         </div>
-      `;
-
-      list.innerHTML = html;
+        <div class="nav-hint" style="margin-top:18px;"><span style="width:100%;text-align:center;color:var(--orange);font-weight:950;">${t('swipeDownCheckout')}</span></div>
+      </div></div>`;
     }
 
-    window.incItemUI = (name) => { incItem(name, 1); showToast(`+1 ${name}`); };
-    window.decItemUI = (name) => { decItem(name, 1); showToast(`-1 ${name}`); };
-
-    function escapeHtml(str){
-      return String(str)
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
-    }
-    function escapeAttr(str){
-      return String(str).replaceAll("\\","\\\\").replaceAll("'","\\'");
+    if(cfg.type==='final'){
+      const open=isOpenNow(); const bannerCls=open?'banner open':'banner closed';
+      html+=`<div class="sub-slide static"><div class="verdict-container" style="max-width:560px;margin:0 auto;">
+        <div class="choice-header">${t('checkout')}</div>
+        <div class="${bannerCls}" id="final-open-banner" style="margin-bottom:12px;">${(open?t('openNow'):t('closedNow'))} • ${t('bestTime')}</div>
+        <div class="input-group" id="final-list"></div>
+        <button class="btn whatsapp" onclick="sendWhatsappOrder()">${t('whatsappOrder')}</button>
+        <button class="btn" style="margin-top:10px;background:#fff;color:#000;border:none;" onclick="copyOrderText()">${t('copyOrder')}</button>
+        <button class="btn" style="margin-top:10px;background:#1a1a1a;" onclick="startOver()">${t('startNew')}</button>
+        <div class="hint" style="margin-top:10px;">Voice: next / back / select / skip / browse / whatsapp</div>
+      </div></div>`;
     }
 
-    /* ===============================
-       PREFERENCES
-       =============================== */
-    function hydratePrefsUI(){
-      const pref = ENGINE_STATE.preferences;
+    html+=`</div>`;
+    section.innerHTML=html;
+    container.appendChild(section);
+  });
 
-      document.querySelectorAll('.pill[data-timing]').forEach(p=>{
-        p.classList.toggle('active', p.dataset.timing === pref.timing_pref);
-      });
-      document.querySelectorAll('.pill[data-otype]').forEach(p=>{
-        p.classList.toggle('active', p.dataset.otype === pref.order_type);
-      });
+  slideElements=Array.from(document.querySelectorAll('.main-slide'));
+  currentIdx=0;
+  attachEvents();
+  hydratePrefsUI();
+  updateFinalSlide();
+}
 
-      const n = document.getElementById('cust-name');
-      const ph = document.getElementById('cust-phone');
-      const notes = document.getElementById('cust-notes');
-      if(n) n.value = pref.customer_name || "";
-      if(ph) ph.value = pref.phone || "";
-      if(notes) notes.value = pref.notes || "";
+/* ================================================================
+   NAV + SWIPE
+   ================================================================ */
+function goToSlide(idx){
+  if(idx<0||idx>=slideElements.length) return;
+  const curr=slideElements[currentIdx];
+  curr.classList.remove('active');
+  if(idx>currentIdx){ curr.classList.add('prev'); curr.classList.remove('next'); }
+  else { curr.classList.add('next'); curr.classList.remove('prev'); }
+  currentIdx=idx;
+  const next=slideElements[currentIdx];
+  next.classList.remove('prev','next'); next.classList.add('active');
+  dragRatio=0; document.getElementById('depth-fill').style.height='0%';
+  if(next.id==='final') updateFinalSlide();
+  if(next.id==='prefs') hydratePrefsUI();
+}
 
-      refreshOpenBanners();
-    }
+function executeAction(action){
+  const currSlide=slideElements[currentIdx];
+  const mode=currSlide.dataset.mode;
+  switch(action){
+    case 'NEXT': goToSlide(currentIdx+1); break;
+    case 'PREV': if(currentIdx>0) goToSlide(currentIdx-1); break;
+    case 'SELECT':
+      if(mode==='options'){
+        const view=currSlide.querySelector('.carousel-viewport');
+        const subSlide=view.querySelectorAll('.sub-slide')[view._currOpt||0];
+        const itemId=subSlide?.dataset?.itemId;
+        if(!itemId){ showToast(t('noItems')); return; }
+        // Find item object
+        const item=findItemById(itemId);
+        if(!item){ showToast(t('noItems')); return; }
+        incItem(item,1);
+        showToast(`${t('added')}: ${itemName(item)}`);
+        goToSlide(currentIdx+1);
+      } else { goToSlide(currentIdx+1); }
+      break;
+    case 'SKIP':
+      if(mode==='options'){ showToast(t('skip')); goToSlide(currentIdx+1); }
+      break;
+    case 'BROWSE':
+      if(mode==='options'){
+        const view=currSlide.querySelector('.carousel-viewport');
+        const ss=view.querySelectorAll('.sub-slide');
+        if(!ss.length) return;
+        let cur=view._currOpt||0; cur=(cur+1)%ss.length; view._currOpt=cur;
+        ss.forEach((s,i)=>{
+          if(i===cur){ s.classList.remove('opt-hidden'); s.classList.add('opt-active'); }
+          else { s.classList.remove('opt-active'); s.classList.add('opt-hidden'); }
+        });
+      }
+      break;
+  }
+}
 
-    window.setTiming = (el) => { ENGINE_STATE.preferences.timing_pref = el.dataset.timing; hydratePrefsUI(); };
-    window.setOrderType = (el) => { ENGINE_STATE.preferences.order_type = el.dataset.otype; hydratePrefsUI(); };
+function findItemById(id){
+  for(const cat of getJalaramCategories()){
+    for(const item of (cat.items||[])){ if(item.id===id) return item; }
+  }
+  return null;
+}
 
-    window.syncPrefs = () => {
-      ENGINE_STATE.preferences.customer_name = (document.getElementById('cust-name')?.value || "").trim();
-      ENGINE_STATE.preferences.phone = (document.getElementById('cust-phone')?.value || "").trim();
-      ENGINE_STATE.preferences.notes = (document.getElementById('cust-notes')?.value || "").trim();
-    };
-
-    /* ===============================
-       WHATSAPP + COPY
-       =============================== */
-    function buildOrderText({forWhatsapp=false}={}){
-      const { items, total } = calculateCartTotals();
-      const pref = ENGINE_STATE.preferences;
-      if(!items.length) return "";
-
-      const line = s => s + "\n";
-      let text = "";
-
-      if(forWhatsapp){
-        text += line("📋 *JALARAM FOOD COURT (RAJKOT) — નવી ઓર્ડર*");
-        text += line("——————————————");
+function attachEvents(){
+  let startX=0,startY=0;
+  document.querySelectorAll('.carousel-viewport').forEach(view=>{
+    view._currOpt=0;
+    view.addEventListener('touchstart',e=>{ startX=e.touches[0].clientX; startY=e.touches[0].clientY; },{passive:true});
+    view.addEventListener('touchmove',e=>{
+      const dx=e.touches[0].clientX-startX, dy=e.touches[0].clientY-startY;
+      if(Math.abs(dy)>Math.abs(dx)&&dy>0){
+        e.preventDefault();
+        dragRatio=Math.min(dy/MAX_DRAG,1);
+        const f=document.getElementById('depth-fill');
+        f.style.height=(dragRatio*100)+'%';
+        f.style.backgroundColor=dragRatio>TRIGGER_THRESHOLD?'var(--go)':'#333';
+      }
+    },{passive:false});
+    view.addEventListener('touchend',e=>{
+      const dx=e.changedTouches[0].clientX-startX, dy=e.changedTouches[0].clientY-startY;
+      if(Math.abs(dy)>Math.abs(dx)){
+        if(dy<-50) executeAction('PREV');
+        else if(dy>50&&dragRatio>TRIGGER_THRESHOLD) executeAction('SELECT');
       } else {
-        text += line("JALARAM FOOD COURT (RAJKOT) — ORDER");
-        text += line("------------------------------");
+        const mode=view.closest('.main-slide').dataset.mode;
+        if(mode==='options'){ if(dx<-50) executeAction('SKIP'); else if(dx>50) executeAction('BROWSE'); }
       }
+      document.getElementById('depth-fill').style.height='0%'; dragRatio=0;
+    });
+  });
+}
 
-      items.forEach((i,idx)=>{
-        text += line(`${idx+1}. ${i.name} (x${i.qty}) — ₹${i.lineTotal}`);
-      });
+/* ================================================================
+   FINAL SLIDE
+   ================================================================ */
+function updateFinalSlide(){
+  const list=document.getElementById('final-list');
+  if(!list) return;
+  const {items,total}=calculateCartTotals();
+  if(!items.length){
+    list.innerHTML=`<div style="text-align:center;color:#777;font-family:var(--mono);padding:18px;">${t('cartEmpty')}</div>`;
+    return;
+  }
+  let html='';
+  items.forEach(i=>{
+    html+=`<div class="item-row">
+      <div class="item-name">
+        <div class="t">${escapeHtml(i.name)}</div>
+        <div class="s">₹${i.price} ${t('each')} • ${t('line')} ₹${i.lineTotal}</div>
+      </div>
+      <div class="qty-box">
+        <button class="qty-btn" onclick="decItemUI('${escapeAttr(i.id)}')">-</button>
+        <div class="qty-num">${i.qty}</div>
+        <button class="qty-btn" onclick="incItemUI('${escapeAttr(i.id)}')">+</button>
+      </div>
+    </div>`;
+  });
+  html+=`<div class="total-row"><span class="k">${t('total')}</span><span class="v">₹${total}</span></div>`;
+  list.innerHTML=html;
+}
 
-      text += line("——————————————");
-      text += line(`💰 કુલ: ₹${total}`);
-      text += line("——————————————");
-      text += line("🧾 પસંદગીઓ:");
-      text += line(`• સમય: ${String(pref.timing_pref).toUpperCase()}`);
-      text += line(`• પ્રકાર: ${pref.order_type === "dinein" ? UI_GU.dineIn : UI_GU.takeAway}`);
-      if(pref.customer_name) text += line(`• નામ: ${pref.customer_name}`);
-      if(pref.phone) text += line(`• ફોન: ${pref.phone}`);
-      if(pref.notes) text += line(`• નોંધ: ${pref.notes}`);
-      text += line("——————————————");
-      text += line("⏰ સારો સમય: 6PM–10PM");
-      text += line("🚫 6PM પહેલા અને 10PM પછી બંધ");
-      text += line(`🟢 હાલની સ્થિતિ: ${isOpenNow() ? UI_GU.statusOpen : UI_GU.statusClosed}`);
+window.incItemUI=(id)=>{ const item=findItemById(id); if(item){ incItem(item,1); showToast(`+1 ${itemName(item)}`); } };
+window.decItemUI=(id)=>{ const item=findItemById(id); if(item){ decItem(item,1); showToast(`-1 ${itemName(item)}`); } };
 
-      return text.trim();
-    }
+function escapeHtml(s){ return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;"); }
+function escapeAttr(s){ return String(s).replaceAll('\\','\\\\').replaceAll("'","\\'"); }
 
-    window.copyOrderText = async () => {
-      const text = buildOrderText({forWhatsapp:false});
-      if(!text){ showToast(UI_GU.cartEmpty); return; }
-      try{
-        await navigator.clipboard.writeText(text);
-        showToast(UI_GU.copied);
-      }catch(e){
-        showToast(UI_GU.copyFailed);
-      }
-    };
+/* ================================================================
+   PREFERENCES
+   ================================================================ */
+function hydratePrefsUI(){
+  const pref=ENGINE_STATE.preferences;
+  document.querySelectorAll('.pill[data-timing]').forEach(p=>p.classList.toggle('active',p.dataset.timing===pref.timing_pref));
+  document.querySelectorAll('.pill[data-otype]').forEach(p=>p.classList.toggle('active',p.dataset.otype===pref.order_type));
+  const n=document.getElementById('cust-name'), ph=document.getElementById('cust-phone'), nt=document.getElementById('cust-notes');
+  if(n) n.value=pref.customer_name||'';
+  if(ph) ph.value=pref.phone||'';
+  if(nt) nt.value=pref.notes||'';
+  refreshOpenBanners();
+}
 
-    window.sendWhatsappOrder = () => {
-      const text = buildOrderText({forWhatsapp:true});
-      if(!text){ showToast(UI_GU.cartEmpty); return; }
-      const encoded = encodeURIComponent(text);
+window.setTiming=(el)=>{ ENGINE_STATE.preferences.timing_pref=el.dataset.timing; hydratePrefsUI(); };
+window.setOrderType=(el)=>{ ENGINE_STATE.preferences.order_type=el.dataset.otype; hydratePrefsUI(); };
+window.syncPrefs=()=>{
+  ENGINE_STATE.preferences.customer_name=(document.getElementById('cust-name')?.value||'').trim();
+  ENGINE_STATE.preferences.phone=(document.getElementById('cust-phone')?.value||'').trim();
+  ENGINE_STATE.preferences.notes=(document.getElementById('cust-notes')?.value||'').trim();
+};
 
-      // +91 95585 06539 -> digits only for wa.me
-      const WHATSAPP_NUMBER = "919558506539";
-      window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encoded}`, "_blank");
-    };
+/* ================================================================
+   WHATSAPP + COPY
+   ================================================================ */
+function buildOrderText({forWhatsapp=false}={}){
+  const {items,total}=calculateCartTotals();
+  const pref=ENGINE_STATE.preferences;
+  if(!items.length) return '';
+  const ln=s=>s+'\n';
+  let text='';
+  if(forWhatsapp){ text+=ln('📋 *JALARAM FOOD COURT (RAJKOT) — Order*'); text+=ln('——————————————'); }
+  else { text+=ln('JALARAM FOOD COURT (RAJKOT) — ORDER'); text+=ln('------------------------------'); }
+  items.forEach((i,idx)=>{ text+=ln(`${idx+1}. ${i.name} (x${i.qty}) — ₹${i.lineTotal}`); });
+  text+=ln('——————————————');
+  text+=ln(`💰 ${t('total')}: ₹${total}`);
+  text+=ln('——————————————');
+  text+=ln(`• ${t('timingLabel')}: ${String(pref.timing_pref).toUpperCase()}`);
+  text+=ln(`• ${t('dineTakeLabel')}: ${pref.order_type==='dinein'?t('dineIn'):t('takeAway')}`);
+  if(pref.customer_name) text+=ln(`• ${t('nameLabel')}: ${pref.customer_name}`);
+  if(pref.phone) text+=ln(`• ${t('phoneLabel')}: ${pref.phone}`);
+  if(pref.notes) text+=ln(`• ${t('notesLabel')}: ${pref.notes}`);
+  text+=ln('——————————————');
+  text+=ln(`🟢 ${isOpenNow()?t('statusOpen'):t('statusClosed')}`);
+  return text.trim();
+}
 
-    window.startOver = () => {
-      ENGINE_STATE.items_detected = {};
-      ENGINE_STATE.categories_selected = [];
-      ENGINE_STATE.preferences = {
-        timing_pref:"now",
-        order_type:"takeaway",
-        customer_name:"",
-        phone:"",
-        notes:""
-      };
-      renderLobby();
-      showToast("તૈયાર ✅");
-    };
+window.copyOrderText=async()=>{
+  const text=buildOrderText({forWhatsapp:false});
+  if(!text){ showToast(t('cartEmpty')); return; }
+  try{ await navigator.clipboard.writeText(text); showToast(t('copied')); }
+  catch(e){ showToast(t('copyFailed')); }
+};
 
-    /* ===============================
-       AUTO OPEN/CLOSED BANNER REFRESH
-       =============================== */
-    function refreshOpenBanners(){
-      const open = isOpenNow();
-      const prefsBanner = document.getElementById('prefs-open-banner');
-      const finalBanner = document.getElementById('final-open-banner');
-      const lobbyBanner = document.getElementById('lobby-open-banner');
+window.sendWhatsappOrder=()=>{
+  const text=buildOrderText({forWhatsapp:true});
+  if(!text){ showToast(t('cartEmpty')); return; }
+  window.open(`https://wa.me/919558506539?text=${encodeURIComponent(text)}`,'_blank');
+};
 
-      const cls = open ? "banner open" : "banner closed";
-      const txt = open ? UI_GU.openNow : UI_GU.closedNow;
-      const full = `${txt} • ${UI_GU.bestTime}`;
+window.startOver=()=>{
+  ENGINE_STATE.items_detected={};
+  ENGINE_STATE.categories_selected=[];
+  ENGINE_STATE.preferences={timing_pref:'now',order_type:'takeaway',customer_name:'',phone:'',notes:''};
+  inGameMode=false;
+  renderLobby();
+  showToast('✅ Ready');
+};
 
-      if(lobbyBanner){ lobbyBanner.className = cls; lobbyBanner.textContent = full; }
-      if(prefsBanner){ prefsBanner.className = cls; prefsBanner.textContent = full; }
-      if(finalBanner){ finalBanner.className = cls; finalBanner.textContent = full; }
+/* ================================================================
+   BANNER REFRESH
+   ================================================================ */
+function refreshOpenBanners(){
+  const open=isOpenNow();
+  const cls=open?'banner open':'banner closed';
+  const full=(open?t('openNow'):t('closedNow'))+' • '+t('bestTime');
+  ['lobby-open-banner','prefs-open-banner','final-open-banner'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){ el.className=cls; el.textContent=full; }
+  });
+  document.querySelectorAll('.pill-status').forEach(el=>{
+    el.innerHTML=`<span class="dot ${open?'open':'closed'}"></span><span>${open?t('statusOpen'):t('statusClosed')}</span>`;
+  });
+}
+setInterval(refreshOpenBanners, 60*1000);
 
-      document.querySelectorAll('.pill-status').forEach(el=>{
-        el.innerHTML = `
-          <span class="dot ${open ? 'open' : 'closed'}"></span>
-          <span>${open ? UI_GU.statusOpen : UI_GU.statusClosed}</span>
-        `;
-      });
-    }
-    setInterval(refreshOpenBanners, 60 * 1000);
-
-    /* ===============================
-       VOICE MODE (AUTO-ENABLED)
-       =============================== */
-    let rec;
-    function normalizeText(t){
-      return (t || "").toLowerCase().replace(/\s+/g, " ").trim();
-    }
-
-    function bestMatchItemFromText(txt){
-      const allItems = [];
-      for(const cat of getJalaramCategories()){
-        for(const item of (cat.items || [])){
-          allItems.push(item.name);
-        }
-      }
-      const low = txt.toLowerCase();
-      let best = null;
-      for(const name of allItems){
-        const nlow = name.toLowerCase();
-        if(low.includes(nlow)){
-          if(!best || nlow.length > best.toLowerCase().length) best = name;
-        }
-      }
-      return best;
-    }
-
-    function initVoice(){
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if(!SR){
-        showToast(UI_GU.voiceNA);
-        return;
-      }
-      rec = new SR();
-      rec.lang = "en-IN";
-      rec.continuous = true;
-      rec.interimResults = false;
-
-      rec.onresult = e => {
-        const raw = e.results[e.results.length - 1][0].transcript;
-        const txt = normalizeText(raw);
-        showToast(`🎙️ ${raw}`);
-
-        if(txt.includes("next")) return goToSlide(currentIdx+1);
-        if(txt.includes("back") || txt.includes("previous")) return (currentIdx>0 ? goToSlide(currentIdx-1) : null);
-        if(txt.includes("select") || txt === "add" || txt.includes("add it")) return executeAction("SELECT");
-        if(txt.includes("skip")) return executeAction("SKIP");
-        if(txt.includes("browse") || txt.includes("show more")) return executeAction("BROWSE");
-        if(txt.includes("whatsapp") || txt.includes("send order")) return sendWhatsappOrder();
-
-        if(txt.startsWith("plus ") || txt.startsWith("increase ")){
-          const item = bestMatchItemFromText(txt);
-          if(item){ incItem(item, 1); speak(`Added one ${item}`); return; }
-        }
-        if(txt.startsWith("minus ") || txt.startsWith("decrease ")){
-          const item = bestMatchItemFromText(txt);
-          if(item){ decItem(item, 1); speak(`Removed one ${item}`); return; }
-        }
-        if(txt.startsWith("add ")){
-          const item = bestMatchItemFromText(txt);
-          if(item){ incItem(item, 1); speak(`Added ${item}`); return; }
-        }
-
-        speak("Command not recognized");
-      };
-
-      rec.onerror = () => showToast(UI_GU.voiceTmp);
-      rec.onend = () => {
-        const mic = document.getElementById('mic-toggle');
-        if(mic && mic.classList.contains('listening')){
-          setTimeout(()=>{ try{ rec.start(); }catch(e){} }, 250);
-        }
-      };
-
-      window.toggleListenMode = () => {
-        const mic = document.getElementById('mic-toggle');
-        if(!rec) return;
-
-        if(mic.classList.contains('listening')){
-          mic.classList.remove('listening');
-          try { rec.stop(); } catch(e){}
-          showToast(UI_GU.micOff);
-        } else {
-          mic.classList.add('listening');
-          try { rec.start(); } catch(e){}
-          showToast(UI_GU.micOn);
-        }
-      };
-
-      // Auto-enable mic (user can toggle)
-      const mic = document.getElementById('mic-toggle');
-      mic.classList.add('listening');
-      try { rec.start(); showToast(UI_GU.micOn + " ✅"); } catch(e){}
-    }
-
-    /* ===============================
-       BOOT
-       =============================== */
-    function boot(){
-      renderLobby();
-      initVoice();
-      refreshOpenBanners();
-    }
-    boot();
-  </script>
+/* ================================================================
+   BOOT
+   ================================================================ */
+function boot(){
+  restoreLang();    // restore persisted lang before first render
+  renderLobby();
+  initVoice();
+  refreshOpenBanners();
+}
+boot();
+</script>
 </body>
 </html>
