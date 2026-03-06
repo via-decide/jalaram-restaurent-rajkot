@@ -1,14 +1,13 @@
 <!--
-  CHANGES (v3 — 2026):
-  1–12. All v2 changes preserved (mic FAB, earcon, haptics, error handling, synonyms, etc.)
-  13. Language toggle now changes ENTIRE app display language (menu labels, UI strings, category names)
-  14. JALARAM_MENU extended with name_en / name_hi / name_gu + label_en / label_hi / label_gu per category
-  15. Three UI_STRINGS sets (en/hi/gu) — t(key) helper picks correct set at render time
-  16. itemName(item), catLabel(cat) helpers respect currentDisplayLang
-  17. setLang() updates both voice SpeechRecognition.lang AND currentDisplayLang, then re-renders
-  18. normalizeCuisineToArray preserves all _en/_hi/_gu label fields through pipeline
-  19. Apps Script fetch helper (fetchFromBackend) ready; menu falls back to local data offline
-  20. currentDisplayLang persisted in localStorage alongside voice lang
+  CHANGES (v4 — 2026):
+  1–18. All v3 changes preserved (trilingual, mic FAB, earcon, haptics, etc.)
+  19. NEW: logOrderToSheet() — gathers cart + ENGINE_STATE.preferences into a
+      structured payload and calls google.script.run.logOrder(payload).
+  20. NEW: typeof google !== 'undefined' guard — app degrades gracefully when
+      opened locally (file://) or outside Apps Script; WhatsApp redirect still fires.
+  21. NEW: withSuccessHandler / withFailureHandler wired for silent logging.
+  22. sendWhatsappOrder() now calls logOrderToSheet() BEFORE opening WhatsApp.
+  23. Checkout button (final slide) also triggers logOrderToSheet().
 -->
 <!DOCTYPE html>
 <html lang="gu">
@@ -222,7 +221,8 @@ const UI_STRINGS = {
     cartEmpty:"Cart is empty",copied:"Copied ✅",copyFailed:"Copy failed",
     micOn:"🎙 Listening",micOff:"🎙 Off",voiceNA:"Voice not supported",voiceTmp:"Voice error — retry",
     added:"Added",removed:"Removed",total:"Total",each:"each",line:"line",
-    statusOpen:"Open",statusClosed:"Closed"
+    statusOpen:"Open",statusClosed:"Closed",
+    logging:"Logging order…",logOk:"Order logged ✅",logFail:"Log failed (offline?)"
   },
   hi: {
     lobbyTitle:"आज क्या मंगाएं?",
@@ -245,7 +245,8 @@ const UI_STRINGS = {
     cartEmpty:"कार्ट खाली है",copied:"कॉपी हो गया ✅",copyFailed:"कॉपी नहीं हुआ",
     micOn:"🎙 सुन रहा है",micOff:"🎙 बंद",voiceNA:"वॉइस सपोर्ट नहीं",voiceTmp:"वॉइस त्रुटि — पुनः प्रयास",
     added:"जोड़ा",removed:"हटाया",total:"कुल",each:"प्रत्येक",line:"लाइन",
-    statusOpen:"खुला",statusClosed:"बंद"
+    statusOpen:"खुला",statusClosed:"बंद",
+    logging:"ऑर्डर लॉग हो रहा है…",logOk:"ऑर्डर लॉग हो गया ✅",logFail:"लॉग नहीं हुआ"
   },
   gu: {
     lobbyTitle:"આજ શું મંગાવીએ?",
@@ -268,15 +269,15 @@ const UI_STRINGS = {
     cartEmpty:"કાર્ટ ખાલી",copied:"કોપી થયું ✅",copyFailed:"કોપી ન થયું",
     micOn:"🎙 Listening",micOff:"🎙 Off",voiceNA:"Voice not supported",voiceTmp:"Voice error — retry",
     added:"ઉમેર્યું",removed:"કાઢ્યું",total:"કુલ",each:"દર",line:"લાઇન",
-    statusOpen:"ખુલ્લું",statusClosed:"બંધ"
+    statusOpen:"ખુલ્લું",statusClosed:"બંધ",
+    logging:"ઓર્ડર લૉગ થઈ રહ્યો છે…",logOk:"ઓર્ડર લૉગ થયો ✅",logFail:"લૉગ ન થયો (ઑફલાઇન?)"
   }
 };
 
 /* ── Language state ── */
-let currentDisplayLang = 'gu';   // affects UI rendering
-let currentVoiceLang   = 'gu-IN'; // affects SpeechRecognition.lang
+let currentDisplayLang = 'gu';
+let currentVoiceLang   = 'gu-IN';
 
-/* t(key) — translated UI string */
 function t(key){ return (UI_STRINGS[currentDisplayLang] || UI_STRINGS.gu)[key] || key; }
 
 /* ================================================================
@@ -313,9 +314,9 @@ const JALARAM_MENU = {
         jb_combos:{
           label_en:"Combos", label_hi:"कॉम्बो", label_gu:"કોમ્બો",
           items:[
-            {id:"combo_pavbhaji_pulav",            name_en:"Pav Bhaji + Pulav",             name_hi:"पाव भाजी + पुलाव",            name_gu:"પાવ ભાજી + પુલાવ",           price:240},
-            {id:"combo_cheese_pavbhaji_paneer_pulav",name_en:"Cheese PavBhaji + Paneer Pulav",name_hi:"चीज़ पाव भाजी + पनीर पुलाव", name_gu:"ચીઝ પાવ ભાજી + પનીર પુલાવ", price:290},
-            {id:"combo_jain",                      name_en:"Jain Combo",                    name_hi:"जैन कॉम्बो",                  name_gu:"જૈન કોમ્બો",                 price:230}
+            {id:"combo_pavbhaji_pulav",              name_en:"Pav Bhaji + Pulav",               name_hi:"पाव भाजी + पुलाव",            name_gu:"પાવ ભાજી + પુલાવ",           price:240},
+            {id:"combo_cheese_pavbhaji_paneer_pulav",name_en:"Cheese PavBhaji + Paneer Pulav",  name_hi:"चीज़ पाव भाजी + पनीर पुलाव", name_gu:"ચીઝ પાવ ભાજી + પનીર પુલાવ", price:290},
+            {id:"combo_jain",                        name_en:"Jain Combo",                      name_hi:"जैन कॉम्बो",                  name_gu:"જૈન કોમ્બો",                 price:230}
           ]
         },
         jb_addons:{
@@ -344,7 +345,6 @@ function cuisineLabel(cuisine){
   return cuisine['label_'+currentDisplayLang] || cuisine.label_en || cuisine.label_gu || cuisine.label || '';
 }
 
-/* ── Normalize to array format (preserves _en/_hi/_gu fields) ── */
 function normalizeCuisineToArray(cuisineObj){
   const out = {};
   for(const cKey in cuisineObj){
@@ -436,7 +436,7 @@ let currentIdx = 0;
 let dragRatio = 0;
 const MAX_DRAG = 150;
 const TRIGGER_THRESHOLD = 0.3;
-let inGameMode = false; // track if we're in deck vs lobby
+let inGameMode = false;
 
 let toastTimer = null;
 function showToast(msg, color){
@@ -494,7 +494,6 @@ function doVibrate(pat){ try{ if(navigator.vibrate) navigator.vibrate(pat); }cat
 
 /* ================================================================
    LANGUAGE TOGGLE
-   — sets BOTH display lang (re-renders) AND voice lang
    ================================================================ */
 let rec = null, recActive = false, noSpeechRetries = 0, permBlocked = false;
 const MAX_RETRIES = 3;
@@ -502,24 +501,13 @@ const MAX_RETRIES = 3;
 window.setLang = (el) => {
   document.querySelectorAll('.lang-chip').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
-
-  const full = el.dataset.lang;          // e.g. "hi-IN"
-  const short = full.split('-')[0];      // e.g. "hi"
-
+  const full = el.dataset.lang;
+  const short = full.split('-')[0];
   currentVoiceLang   = full;
   currentDisplayLang = short;
-
   try{ localStorage.setItem('food_decide_lang', full); }catch(e){}
-
-  // Update voice recognition language live
   if(rec){ try{ rec.lang = full; }catch(e){} }
-
-  // Re-render everything in new language
-  if(inGameMode){
-    buildGameDeck();
-  } else {
-    renderLobby();
-  }
+  if(inGameMode){ buildGameDeck(); } else { renderLobby(); }
   showToast('Language: ' + el.textContent.trim());
 };
 
@@ -566,7 +554,6 @@ function bestMatchItemFromText(txt){
   const low = txt.toLowerCase();
   let best = null;
   for(const item of allItems){
-    // match against all three language names
     for(const field of ['name_en','name_hi','name_gu']){
       const nlow = (item[field]||'').toLowerCase();
       if(nlow && low.includes(nlow)){
@@ -617,15 +604,12 @@ function initVoice(){
     const r = new SR();
     r.lang = currentVoiceLang;
     r.continuous = true; r.interimResults = false;
-
     r.onstart = ()=>{ recActive=true; noSpeechRetries=0; setMicState('listening'); };
     r.onspeechend = ()=>{ setMicState('processing'); };
-
     r.onresult = (e)=>{
       const raw = e.results[e.results.length-1][0].transcript;
       setTimeout(()=>{ dispatchVoice(raw); if(recActive) setMicState('listening'); }, 280);
     };
-
     r.onerror = (e)=>{
       const code = e.error;
       if(code==='not-allowed'||code==='service-not-allowed'){
@@ -643,7 +627,6 @@ function initVoice(){
         if(noSpeechRetries>=MAX_RETRIES){ recActive=false; setMicState('idle'); showToast('Network error — voice off'); }
       } else { showToast(t('voiceTmp')); }
     };
-
     r.onend = ()=>{
       if(recActive && !permBlocked){ setTimeout(()=>{ try{ r.lang=currentVoiceLang; r.start(); }catch(e){} },200); }
       else if(!recActive){ setMicState('idle'); }
@@ -686,26 +669,20 @@ function getJalaramCategories(){
   return (j&&j.categories) ? j.categories : [];
 }
 
-function findItemMeta(itemObj){
-  // itemObj is the actual item object (has price)
-  return { price: itemObj.price || 0 };
-}
-function findItemByAnyName(name){
+function findItemById(id){
   for(const cat of getJalaramCategories()){
-    for(const item of (cat.items||[])){
-      if(item.name_en===name||item.name_hi===name||item.name_gu===name) return item;
-    }
+    for(const item of (cat.items||[])){ if(item.id===id) return item; }
   }
   return null;
 }
 
 function incItem(itemObj, amount=1){
-  const key = itemObj.id; // stable ID regardless of lang
+  const key = itemObj.id;
   const current = ENGINE_STATE.items_detected[key]?.qty || 0;
   ENGINE_STATE.items_detected[key] = {
     qty:   Math.max(0, current+amount),
     price: itemObj.price||0,
-    item:  itemObj   // keep reference for name lookup
+    item:  itemObj
   };
   if(ENGINE_STATE.items_detected[key].qty<=0) delete ENGINE_STATE.items_detected[key];
   updateFinalSlide();
@@ -722,6 +699,70 @@ function calculateCartTotals(){
   }
   items.sort((a,b)=>a.name.localeCompare(b.name));
   return { items, total };
+}
+
+/* ================================================================
+   LOG ORDER TO SHEET  ← NEW in v4
+   ================================================================
+   Gathers cart + preferences into a clean payload and calls the
+   Apps Script server function.  Wrapped in a typeof guard so the
+   app degrades gracefully when opened locally (file://) or in any
+   non-Apps-Script context — the WhatsApp redirect still fires.
+   ================================================================ */
+function logOrderToSheet(){
+  try {
+    // Always sync latest prefs from DOM before reading
+    syncPrefs();
+
+    const { items, total } = calculateCartTotals();
+    if (!items.length) return; // nothing to log
+
+    const pref = ENGINE_STATE.preferences;
+
+    // Build a clean, serialisable payload (no DOM refs, no getters)
+    const payload = {
+      session_id    : ENGINE_STATE.session_id,
+      customer_name : pref.customer_name  || '',
+      phone         : pref.phone          || '',
+      order_type    : pref.order_type     || 'takeaway',
+      timing_pref   : pref.timing_pref    || 'now',
+      notes         : pref.notes          || '',
+      language      : currentDisplayLang  || 'gu',
+      total         : total,
+      // Serialise each cart line — only primitive fields
+      items: items.map(i => ({
+        id       : i.id,
+        name     : i.name,
+        qty      : i.qty,
+        price    : i.price,
+        lineTotal: i.lineTotal
+      }))
+    };
+
+    // ── Guard: only call google.script.run inside Apps Script ──
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(result => {
+          // Silent success — optionally show a brief toast
+          showToast(t('logOk'), 'var(--go)');
+          console.log('[logOrder] Sheet row added:', result);
+        })
+        .withFailureHandler(err => {
+          // Non-blocking failure — order still goes to WhatsApp
+          showToast(t('logFail'), '#ff9a9a');
+          console.warn('[logOrder] Sheet logging failed:', err);
+        })
+        .logOrder(payload);
+
+      showToast(t('logging'));
+    } else {
+      // Running locally or outside Apps Script — skip silently
+      console.info('[logOrder] google.script.run unavailable — skipping sheet log. Payload:', payload);
+    }
+  } catch (err) {
+    // Never let a logging error block the main UX flow
+    console.warn('[logOrder] Unexpected error — skipping:', err);
+  }
 }
 
 /* ================================================================
@@ -919,7 +960,6 @@ function executeAction(action){
         const subSlide=view.querySelectorAll('.sub-slide')[view._currOpt||0];
         const itemId=subSlide?.dataset?.itemId;
         if(!itemId){ showToast(t('noItems')); return; }
-        // Find item object
         const item=findItemById(itemId);
         if(!item){ showToast(t('noItems')); return; }
         incItem(item,1);
@@ -943,13 +983,6 @@ function executeAction(action){
       }
       break;
   }
-}
-
-function findItemById(id){
-  for(const cat of getJalaramCategories()){
-    for(const item of (cat.items||[])){ if(item.id===id) return item; }
-  }
-  return null;
 }
 
 function attachEvents(){
@@ -1039,7 +1072,7 @@ window.syncPrefs=()=>{
 };
 
 /* ================================================================
-   WHATSAPP + COPY
+   WHATSAPP + COPY  ← sendWhatsappOrder now calls logOrderToSheet
    ================================================================ */
 function buildOrderText({forWhatsapp=false}={}){
   const {items,total}=calculateCartTotals();
@@ -1070,15 +1103,26 @@ window.copyOrderText=async()=>{
   catch(e){ showToast(t('copyFailed')); }
 };
 
+/**
+ * sendWhatsappOrder
+ * 1. Fires logOrderToSheet() — non-blocking, degrades silently offline
+ * 2. Then opens WhatsApp regardless of logging success/failure
+ */
 window.sendWhatsappOrder=()=>{
   const text=buildOrderText({forWhatsapp:true});
   if(!text){ showToast(t('cartEmpty')); return; }
+
+  // Log to sheet first (fire-and-forget — never blocks WhatsApp)
+  logOrderToSheet();
+
+  // Open WhatsApp immediately — no await needed
   window.open(`https://wa.me/919558506539?text=${encodeURIComponent(text)}`,'_blank');
 };
 
 window.startOver=()=>{
   ENGINE_STATE.items_detected={};
   ENGINE_STATE.categories_selected=[];
+  ENGINE_STATE.session_id='auto-'+Date.now(); // fresh session ID
   ENGINE_STATE.preferences={timing_pref:'now',order_type:'takeaway',customer_name:'',phone:'',notes:''};
   inGameMode=false;
   renderLobby();
@@ -1106,7 +1150,7 @@ setInterval(refreshOpenBanners, 60*1000);
    BOOT
    ================================================================ */
 function boot(){
-  restoreLang();    // restore persisted lang before first render
+  restoreLang();
   renderLobby();
   initVoice();
   refreshOpenBanners();
